@@ -15,8 +15,10 @@
 // https://en.wikipedia.org/wiki/Calling_convention#ARM_(A32)
 // http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.faqs/ka4127.html
 asm(".globl PAPushAllRegistersAndIterateStack             \n"
+#if !defined(_WIN32)
     ".type PAPushAllRegistersAndIterateStack, %function   \n"
     ".hidden PAPushAllRegistersAndIterateStack            \n"
+#endif  // !defined(_WIN32)
     "PAPushAllRegistersAndIterateStack:                   \n"
     // Push all callee-saved registers and save return address.
     // Only {r4-r11} are callee-saved registers. Push r3 in addition to align

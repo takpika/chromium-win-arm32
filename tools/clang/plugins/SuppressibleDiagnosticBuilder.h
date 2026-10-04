@@ -21,7 +21,6 @@ class SuppressibleDiagnosticBuilder : public clang::DiagnosticBuilder {
                                 unsigned diagnostic_id,
                                 bool suppressed)
       : DiagnosticBuilder(diagnostics->Report(loc, diagnostic_id)),
-        diagnostics_(diagnostics),
         suppressed_(suppressed) {}
 
   ~SuppressibleDiagnosticBuilder() {
@@ -29,15 +28,13 @@ class SuppressibleDiagnosticBuilder : public clang::DiagnosticBuilder {
       // Clear the underlying data, so the base class destructor
       // doesn't try to emit the diagnostic.
 
+      // (The DiagnosticsEngine holds no state of the diagnostic in flight
+      // any more; clearing the builder is all it takes.)
       Clear();
-      // Also clear the current diagnostic being processed by the
-      // DiagnosticsEngine, since it won't be emitted.
-      diagnostics_->Clear();
     }
   }
 
  private:
-  clang::DiagnosticsEngine* const diagnostics_;
   const bool suppressed_;
 };
 

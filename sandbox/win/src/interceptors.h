@@ -5,7 +5,12 @@
 #ifndef SANDBOX_WIN_SRC_INTERCEPTORS_H_
 #define SANDBOX_WIN_SRC_INTERCEPTORS_H_
 
-#if defined(_WIN64)
+// win-arm32 (__arm__) uses the same g_originals-based interceptor model as the
+// 64-bit targets (bare jump-to-interceptor thunk; the interceptor recovers the
+// original from g_originals[]), because the x86 "insert original_function as the
+// first argument" model is impossible on AAPCS. So it also pulls the Target*64
+// declarations. See interception.h MAKE_SERVICE_NAME and sandbox/win/BUILD.gn.
+#if defined(_WIN64) || defined(__arm__)
 #include "sandbox/win/src/interceptors_64.h"
 #endif
 

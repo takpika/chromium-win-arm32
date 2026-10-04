@@ -774,7 +774,7 @@
 
 // Windows declares several inconvenient macro names.  We #undef them and then
 // restore them in port_undef.inc.
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW32__)  // win-arm32: mingw leaks the same Windows API macros
 #pragma push_macro("CREATE_NEW")
 #undef CREATE_NEW
 #pragma push_macro("DELETE")

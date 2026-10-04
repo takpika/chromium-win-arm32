@@ -18,6 +18,16 @@ void* __cdecl operator new(size_t size,
                            sandbox::AllocationType type,
                            void* near_to = nullptr);
 void __cdecl operator delete(void* memory, sandbox::AllocationType type);
+// Array forms: clang requires a matching operator new[] for array placement
+// new-expressions (`new (TYPE) T[n]`) used by ntdll interception code; MSVC
+// accepted the scalar form. Declared here, defined in the .cc, forwarding to
+// the scalar operators.
+void* __cdecl operator new[](size_t size,
+                             sandbox::AllocationType type,
+                             void* near_to = nullptr);
+void __cdecl operator delete[](void* memory,
+                               sandbox::AllocationType type,
+                               void* near_to = nullptr);
 // Add operator delete that matches the placement form of the operator new
 // above. This is required by compiler to generate code to call operator delete
 // in case the object's constructor throws an exception.
@@ -63,7 +73,11 @@ namespace sandbox {
 #pragma intrinsic(_InterlockedCompareExchange)
 #pragma intrinsic(_InterlockedCompareExchangePointer)
 
-#elif defined(_M_IX86)
+#elif defined(_M_IX86) || defined(__arm__)
+// win-arm32 (llvm-mingw defines __arm__, not _M_ARM): 32-bit ARM has 32-bit
+// pointers like x86, so the 32-bit _InterlockedCompareExchange path applies
+// unchanged (a pointer fits in a long). Upstream only enumerated MSVC's _M_*
+// macros and never targeted win-arm32, hence the #error below.
 extern "C" long _InterlockedCompareExchange(long volatile* destination,
                                             long exchange,
                                             long comperand);

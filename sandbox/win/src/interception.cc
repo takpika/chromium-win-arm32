@@ -471,7 +471,17 @@ ResultCode InterceptionManager::PatchClientFunctions(
     }
 
     DCHECK(!g_originals[interception.id]);
-    g_originals[interception.id] = &thunks->thunks[dll_data->num_thunks];
+    // win-arm32: g_originals[] entries are CALLED as functions by the Target*64
+    // interceptors (interceptors_64.cc), so the address must carry the Thumb bit
+    // (bit0=1). The ThunkData it points at is 4-byte aligned (bit0=0), so OR it in
+    // here; without it the interceptor's BLX would switch to A32 and run the saved
+    // Thumb-2 stub as ARM. No-op on x86/x64/arm64 (no Thumb bit).
+    void* original_entry = &thunks->thunks[dll_data->num_thunks];
+#if defined(_M_ARM) || defined(__arm__)
+    original_entry = reinterpret_cast<void*>(
+        reinterpret_cast<uintptr_t>(original_entry) | 1);
+#endif
+    g_originals[interception.id] = original_entry;
 
     dll_data->num_thunks++;
     dll_data->used_bytes += sizeof(ThunkData);

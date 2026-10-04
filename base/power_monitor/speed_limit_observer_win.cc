@@ -20,7 +20,9 @@
 namespace {
 
 // From ntdef.f
+#ifndef NT_SUCCESS  // mingw-w64 <winternl.h> defines it (the SDK has it in ntdef.h).
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
+#endif
 
 // We poll for new speed-limit values once every second.
 constexpr base::TimeDelta kSampleInterval = base::Seconds(1);

@@ -24,15 +24,29 @@ static constexpr int kNopInstructionSize = 1;
 #elif defined(ARCH_CPU_ARM64)
 // On Arm systems, all instructions are 4 bytes, fixed size.
 static constexpr int kNopInstructionSize = 4;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+// win-arm32 is built Thumb-2 only (-mthumb), whose nop is 2 bytes. Fail loud if a
+// non-Thumb (A32) build is ever attempted rather than carry a dead A32 branch.
+#if !defined(__thumb__)
+#error "win-arm32 must be built as Thumb-2 (__thumb__ expected); A32 is unsupported"
+#endif
+static constexpr int kNopInstructionSize = 2;
 #else
 #error "Unsupported architecture"
 #endif
 
 // Function that can be jumped midway into safely.
 __attribute__((naked)) int nop_sled() {
+#if defined(ARCH_CPU_ARM_FAMILY) && defined(ARCH_CPU_32_BITS)
+  // 32-bit ARM has no `ret`; return via `bx lr`.
+  asm("nop\n"
+      "nop\n"
+      "bx lr\n");
+#else
   asm("nop\n"
       "nop\n"
       "ret\n");
+#endif
 }
 
 using FuncType = decltype(&nop_sled);

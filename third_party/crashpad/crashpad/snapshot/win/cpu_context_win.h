@@ -24,6 +24,7 @@ namespace crashpad {
 struct CPUContextX86;
 struct CPUContextX86_64;
 struct CPUContextARM64;
+struct CPUContextARM;
 
 #if defined(ARCH_CPU_X86) || DOXYGEN
 
@@ -63,6 +64,14 @@ bool IsXStateFeatureEnabled(DWORD64 feature);
 void InitializeARM64Context(const CONTEXT* context, CPUContextARM64* out);
 
 #endif  // ARCH_CPU_ARM64
+
+#if defined(ARCH_CPU_ARMEL) || DOXYGEN
+
+//! \brief Initializes a CPUContextARM structure from a native context
+//!     structure on Windows (win-arm32).
+void InitializeARMContext(const CONTEXT* context, CPUContextARM* out);
+
+#endif  // ARCH_CPU_ARMEL
 
 }  // namespace crashpad
 

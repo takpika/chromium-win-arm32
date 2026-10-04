@@ -5,6 +5,8 @@
 #ifndef CHROME_CHROME_ELF_CHROME_ELF_MAIN_H_
 #define CHROME_CHROME_ELF_CHROME_ELF_MAIN_H_
 
+#include <stddef.h>
+
 // These functions are the cross-module import interface to chrome_elf.dll.
 // It is used by chrome.exe, chrome.dll and other clients of chrome_elf.
 // In tests, these functions are stubbed by implementations in

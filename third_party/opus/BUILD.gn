@@ -21,8 +21,13 @@ use_opus_x86_optimization =
 # If OPUS Run Time CPU Detections (RTCD) shall be used.
 # Based on the conditions in celt/arm/armcpu.c:
 # defined(_MSC_VER) || defined(__linux__).
+# win-arm32 here is the llvm-mingw/clang port, NOT MSVC: armcpu.c's Windows
+# detection path is gated on _MSC_VER and uses __try/__except (no SEH on arm32
+# clang) and __emit (MSVC intrinsic), so no RTCD method is available. Both
+# target devices always have NEON and we build with -mfpu=neon, so use the
+# compile-time PRESUME_NEON path instead of RTCD (exclude is_win for arm).
 use_opus_arm_rtcd =
-    current_cpu == "arm" && (is_win || is_android || is_linux || is_chromeos)
+    current_cpu == "arm" && (is_android || is_linux || is_chromeos)
 
 config("opus_config") {
   include_dirs = [ "src/include" ]
@@ -59,6 +64,16 @@ config("opus_private_config") {
       "/wd4305",  # Disable truncation warning in celt/pitch.c .
       "/wd4334",  # Disable 32-bit shift warning in src/opus_encoder.c .
     ]
+
+    if (current_cpu == "arm") {
+      # win-arm32 has neither of celt/float_cast.h's x86 _MSC_VER paths, so use
+      # lrint()/lrintf() (in the UCRT) as the non-Windows builds do, rather than
+      # the fallback cast, which also #warns on this -gnu target (__GNUC__).
+      defines += [
+        "HAVE_LRINT",
+        "HAVE_LRINTF",
+      ]
+    }
   } else {
     defines += [
       "HAVE_LRINT",
@@ -134,6 +149,20 @@ config("opus_private_config") {
         "OPUS_ARM_PRESUME_NEON_INTR",
         "OPUS_ARM_PRESUME_AARCH64_NEON_INTR",
       ]
+    }
+
+    if (is_win && current_cpu == "arm") {
+      # win-arm32 (llvm-mingw/clang): armcpu.c's runtime CPU detection is gated
+      # on _MSC_VER and uses __try/__except + __emit, none available here, so
+      # RTCD is off (see use_opus_arm_rtcd above). Presume NEON at compile time
+      # instead so the NEON intrinsic dispatch (celt/silk *_neon_intr.c, gated
+      # on arm_use_neon below) is actually selected rather than silently falling
+      # back to portable C. Same pattern as the iOS arm64 branch above; both
+      # target devices are ARMv7 built with -mfpu=neon so NEON is guaranteed.
+      # NOTE: only OPUS_ARM_PRESUME_NEON_INTR (intrinsics, no hand-written .s,
+      # which is why the RTCD asm pipeline stays disabled) — NOT the AArch64
+      # variant, which is arm64-only.
+      defines += [ "OPUS_ARM_PRESUME_NEON_INTR" ]
     }
   }
 }

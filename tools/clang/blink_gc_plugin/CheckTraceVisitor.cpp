@@ -42,6 +42,16 @@ bool CheckTraceVisitor::VisitCallExpr(CallExpr* call) {
     CheckCXXDependentScopeMemberExpr(call, expr);
     return true;
   }
+  // Since clang 22 an unqualified-base-access call such as T::Trace(visitor) or
+  // Base<T>::Trace(visitor) in a template is a DependentScopeDeclRefExpr (no
+  // object expression) rather than a CXXDependentScopeMemberExpr with an
+  // implicit |this|; it is checked the same way.
+  if (DependentScopeDeclRefExpr* expr =
+          dyn_cast<DependentScopeDeclRefExpr>(callee)) {
+    CheckDependentScopeCall(call, expr->getDeclName().getAsString(),
+                            expr->getQualifier());
+    return true;
+  }
 
   if (ImplicitCastExpr* expr = dyn_cast<ImplicitCastExpr>(callee)) {
     if (CheckImplicitCastExpr(call, expr))
@@ -90,12 +100,11 @@ bool CheckTraceVisitor::IsTraceCallName(const std::string& name) {
 }
 
 CXXRecordDecl* CheckTraceVisitor::GetDependentTemplatedDecl(
-    CXXDependentScopeMemberExpr* expr) {
-  NestedNameSpecifier* qual = expr->getQualifier();
-  if (!qual)
+    NestedNameSpecifier qual) {
+  if (qual.getKind() != NestedNameSpecifier::Kind::Type)
     return 0;
 
-  const Type* type = qual->getAsType();
+  const Type* type = qual.getAsType();
   if (!type)
     return 0;
 
@@ -155,9 +164,15 @@ void CheckTraceVisitor::CheckCXXDependentScopeMemberExpr(
     }
   }
 
+  CheckDependentScopeCall(call, fn_name, expr->getQualifier());
+}
+
+void CheckTraceVisitor::CheckDependentScopeCall(CallExpr* call,
+                                                const std::string& fn_name,
+                                                NestedNameSpecifier qual) {
   // Check for T::Trace(visitor).
-  if (NestedNameSpecifier* qual = expr->getQualifier()) {
-    if (const Type* type = qual->getAsType()) {
+  if (qual.getKind() == NestedNameSpecifier::Kind::Type) {
+    if (const Type* type = qual.getAsType()) {
       if (const TemplateTypeParmType* tmpl_parm_type =
               type->getAs<TemplateTypeParmType>()) {
         const unsigned param_index = tmpl_parm_type->getIndex();
@@ -168,7 +183,7 @@ void CheckTraceVisitor::CheckCXXDependentScopeMemberExpr(
     }
   }
 
-  CXXRecordDecl* tmpl = GetDependentTemplatedDecl(expr);
+  CXXRecordDecl* tmpl = GetDependentTemplatedDecl(qual);
   if (!tmpl)
     return;
 
@@ -212,7 +227,10 @@ bool CheckTraceVisitor::CheckTraceBaseCall(CallExpr* call) {
     if (!trace_decl || !Config::IsTraceMethod(trace_decl))
       return false;
 
-    const Type* type = callee->getQualifier()->getAsType();
+    NestedNameSpecifier qual = callee->getQualifier();
+    if (qual.getKind() != NestedNameSpecifier::Kind::Type)
+      return false;
+    const Type* type = qual.getAsType();
     if (!type)
       return false;
 
@@ -394,10 +412,10 @@ bool CheckTraceVisitor::CheckImplicitCastExpr(CallExpr* call,
   DeclRefExpr* sub_expr = dyn_cast<DeclRefExpr>(expr->getSubExpr());
   if (!sub_expr)
     return false;
-  NestedNameSpecifier* qualifier = sub_expr->getQualifier();
+  NestedNameSpecifier qualifier = sub_expr->getQualifier();
   if (!qualifier)
     return false;
-  CXXRecordDecl* class_decl = qualifier->getAsRecordDecl();
+  CXXRecordDecl* class_decl = qualifier.getAsRecordDecl();
   if (!class_decl)
     return false;
   NamedDecl* found_decl = sub_expr->getFoundDecl();

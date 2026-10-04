@@ -10,6 +10,7 @@
 #include <psapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <share.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>

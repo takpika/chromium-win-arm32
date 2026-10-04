@@ -1,0 +1,13 @@
+diff --git a/src/client/windows/handler/exception_handler.cc b/src/client/windows/handler/exception_handler.cc
+index 3b3938aa53b9c9eb19547cd3c85b75264f8f4b20..071e975780989dc201a95cd03a0eb039aacca537 100644
+--- a/src/client/windows/handler/exception_handler.cc
++++ b/src/client/windows/handler/exception_handler.cc
+@@ -976,7 +976,7 @@ bool ExceptionHandler::WriteMinidumpWithExceptionForProcess(
+           exinfo->ContextRecord->Eip;
+ #elif defined(_M_AMD64)
+           exinfo->ContextRecord->Rip;
+-#elif defined(_M_ARM64)
++#elif defined(_M_ARM64) || defined(_M_ARM)
+           exinfo->ContextRecord->Pc;
+ #else
+ #error Unsupported platform

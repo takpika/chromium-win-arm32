@@ -32,6 +32,8 @@ inline ULONG64 ContextPC(CONTEXT* context) {
   return context->Eip;
 #elif defined(ARCH_CPU_ARM64)
   return context->Pc;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+  return context->Pc;
 #else
 #error Unsupported Windows Arch
 #endif

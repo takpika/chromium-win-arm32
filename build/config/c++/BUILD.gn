@@ -26,7 +26,8 @@ config("runtime_library") {
   if (!libcxx_is_shared) {
     # Don't leak any symbols on a static build.
     defines += [ "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS" ]
-    if (!export_libcxxabi_from_executables && !is_win) {
+    if (!export_libcxxabi_from_executables &&
+        (!is_win || target_cpu == "arm")) {
       defines += [ "_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS" ]
     }
   }
@@ -54,6 +55,15 @@ config("runtime_library") {
 
     cflags_cc +=
         [ "-I" + rebase_path("$libcxx_prefix/include", root_build_dir) ]
+
+    if (target_cpu == "arm") {
+      # Windows on ARM32 compiles for a *-windows-gnu triple, i.e. the Itanium
+      # C++ ABI, and links libc++abi (//buildtools/third_party/libc++abi, a
+      # dependency of libc++ there), so libc++abi's headers (<cxxabi.h>, which
+      # e.g. abseil includes under __GXX_RTTI) are visible to every target.
+      cflags_cc +=
+          [ "-I" + rebase_path("$libcxxabi_prefix/include", root_build_dir) ]
+    }
 
     # Add a debug visualizer for Microsoft's debuggers so that they can display
     # libc++ types well.

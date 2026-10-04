@@ -100,6 +100,9 @@ base::FilePath GetPEImageTestPath() {
 #elif defined(ARCH_CPU_X86)
   pe_image_test_path =
       pe_image_test_path.Append(FILE_PATH_LITERAL("pe_image_test_32.dll"));
+#elif defined(ARCH_CPU_ARMEL)
+  pe_image_test_path =
+      pe_image_test_path.Append(FILE_PATH_LITERAL("pe_image_test_arm.dll"));
 #else
 #error This platform is not supported.
 #endif
@@ -129,6 +132,14 @@ TEST(PEImageTest, EnumeratesPE) {
   const int kImports = 70;
   const int kDelayImports = 2;
   const int kRelocs = 976;
+#elif defined(ARCH_CPU_ARMEL)
+  const int kSections = 6;
+  const int kImportsDlls = 3;
+  const int kDelayDlls = 2;
+  const int kExports = 3;
+  const int kImports = 93;
+  const int kDelayImports = 2;
+  const int kRelocs = 4930;
 #else
   const int kSections = 5;
   const int kImportsDlls = 2;
@@ -192,6 +203,9 @@ TEST(PEImageTest, EnumeratesPEWithTargetModule) {
 #elif defined(ARCH_CPU_64_BITS)
   const int kSections = 6;
   const int kRelocs = 976;
+#elif defined(ARCH_CPU_ARMEL)
+  const int kSections = 6;
+  const int kRelocs = 4930;
 #else
   const int kSections = 5;
   const int kRelocs = 2114;

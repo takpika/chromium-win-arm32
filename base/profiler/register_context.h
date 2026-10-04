@@ -44,6 +44,8 @@ inline uintptr_t& RegisterContextStackPointer(::CONTEXT* context) {
   return context->Rsp;
 #elif defined(ARCH_CPU_ARM64)
   return context->Sp;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+  return AsUintPtr(&context->Sp);
 #else
   return AsUintPtr(&context->Esp);
 #endif
@@ -54,6 +56,8 @@ inline uintptr_t& RegisterContextFramePointer(::CONTEXT* context) {
   return context->Rbp;
 #elif defined(ARCH_CPU_ARM64)
   return context->Fp;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+  return AsUintPtr(&context->R11);
 #else
   return AsUintPtr(&context->Ebp);
 #endif
@@ -64,6 +68,8 @@ inline uintptr_t& RegisterContextInstructionPointer(::CONTEXT* context) {
   return context->Rip;
 #elif defined(ARCH_CPU_ARM64)
   return context->Pc;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+  return AsUintPtr(&context->Pc);
 #else
   return AsUintPtr(&context->Eip);
 #endif

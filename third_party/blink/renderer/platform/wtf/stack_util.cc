@@ -88,7 +88,7 @@ size_t GetUnderestimatedStackSize() {
 #endif
   }
   return pthread_get_stacksize_np(pthread_self());
-#elif BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#elif BUILDFLAG(IS_WIN)
   return Threading::ThreadStackSize();
 #else
 #error "Stack frame size estimation not supported on this platform."
@@ -130,7 +130,7 @@ void* GetStackStart() {
 #endif
 #elif BUILDFLAG(IS_MAC)
   return pthread_get_stackaddr_np(pthread_self());
-#elif BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#elif BUILDFLAG(IS_WIN)
 // On Windows stack limits for the current thread are available in
 // the thread information block (TIB).
 // On Windows ARM64, stack limits could be retrieved by calling
@@ -139,7 +139,13 @@ void* GetStackStart() {
 #if defined(ARCH_CPU_X86_64)
   return reinterpret_cast<void*>(
       reinterpret_cast<NT_TIB64*>(NtCurrentTeb())->StackBase);
-#elif defined(ARCH_CPU_X86)
+#elif defined(ARCH_CPU_X86) || defined(ARCH_CPU_ARMEL)
+  // win-arm32 (ARCH_CPU_ARMEL) is a 32-bit target, like x86: read the reserved stack's high
+  // address (StackBase) from the 32-bit NT_TIB via NtCurrentTeb(). This matches the in-tree
+  // 32-bit-Windows precedents (base/allocator/partition_allocator/starscan/stack/stack.cc and
+  // v8/src/base/platform/platform-win32.cc, both NT_TIB->StackBase for 32-bit) and, unlike the
+  // ARM64 GetCurrentThreadStackLimits path, has no Windows-8+ floor (the port also targets
+  // Windows RT 8.1). mingw provides NtCurrentTeb() for __arm__ (winnt.h, TPIDRURO read).
   return reinterpret_cast<void*>(
       reinterpret_cast<NT_TIB*>(NtCurrentTeb())->StackBase);
 #elif defined(ARCH_CPU_ARM64)
@@ -179,7 +185,7 @@ void InitializeMainThreadStackEstimate() {
   g_main_thread_underestimated_stack_size = underestimated_stack_size;
 }
 
-#if BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
 size_t ThreadStackSize() {
   // Notice that we cannot use the TIB's StackLimit for the stack end, as i
   // tracks the end of the committed range. We're after the end of the reserved

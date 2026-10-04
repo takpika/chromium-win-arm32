@@ -1,0 +1,93 @@
+diff --git a/api/function_view.h b/api/function_view.h
+index 5ae1bd6cfe19a75e7bfbf7c62a407ce9fd7bf706..f6e4bb430a635114b11a4b252b3c2e428ff9dc72 100644
+--- a/api/function_view.h
++++ b/api/function_view.h
+@@ -72,14 +72,26 @@ class FunctionView<RetT(ArgT...)> final {
+   // result is an empty FunctionView.
+   template <
+       typename F,
+-      typename std::enable_if<std::is_function<typename std::remove_pointer<
+-          typename std::remove_reference<F>::type>::type>::value>::type* =
++      typename std::enable_if<
++          std::is_pointer<typename std::remove_reference<F>::type>::value &&
++          std::is_function<typename std::remove_pointer<
++              typename std::remove_reference<F>::type>::type>::value>::type* =
+           nullptr>
+   FunctionView(F&& f)
+       : call_(f ? CallFunPtr<typename std::remove_pointer<F>::type> : nullptr) {
+     f_.fun_ptr = reinterpret_cast<void (*)()>(f);
+   }
+ 
++  // Constructor that accepts function references.
++  template <
++      typename F,
++      typename std::enable_if<std::is_function<
++          typename std::remove_reference<F>::type>::value>::type* = nullptr>
++  FunctionView(F&& f)
++      : call_(CallFunPtr<typename std::remove_reference<F>::type>) {
++    f_.fun_ptr = reinterpret_cast<void (*)()>(f);
++  }
++
+   // Constructor that accepts nullptr. It creates an empty FunctionView.
+   template <typename F,
+             typename std::enable_if<std::is_same<
+diff --git a/modules/desktop_capture/win/desktop_capture_utils.cc b/modules/desktop_capture/win/desktop_capture_utils.cc
+index 476ddc4abace90a8d73e5972455f2ac7d2215c5d..0f6c444baf35595ccf1df3f4dcdc58c8ff3f6de9 100644
+--- a/modules/desktop_capture/win/desktop_capture_utils.cc
++++ b/modules/desktop_capture/win/desktop_capture_utils.cc
+@@ -22,7 +22,8 @@ std::string ComErrorToString(const _com_error& error) {
+   rtc::SimpleStringBuilder string_builder(buffer);
+   // Use _bstr_t to simplify the wchar to char conversion for ErrorMessage().
+   _bstr_t error_message(error.ErrorMessage());
+-  string_builder.AppendFormat("HRESULT: 0x%08X, Message: %s", error.Error(),
++  string_builder.AppendFormat("HRESULT: 0x%08X, Message: %s",
++                              static_cast<unsigned int>(error.Error()),
+                               static_cast<const char*>(error_message));
+   return string_builder.str();
+ }
+diff --git a/rtc_base/checks.cc b/rtc_base/checks.cc
+index e732a2659daf29ae952244610a3dec78e77202e5..92f174bcf47c4e316cf6b49ffeed853260c3a1b4 100644
+--- a/rtc_base/checks.cc
++++ b/rtc_base/checks.cc
+@@ -27,7 +27,8 @@
+ #endif
+ 
+ #if defined(WEBRTC_WIN)
+-#define LAST_SYSTEM_ERROR (::GetLastError())
++// DWORD is unsigned long; the messages print it with %u (both 32 bits).
++#define LAST_SYSTEM_ERROR (static_cast<unsigned int>(::GetLastError()))
+ #elif defined(__native_client__) && __native_client__
+ #define LAST_SYSTEM_ERROR (0)
+ #elif defined(WEBRTC_POSIX)
+diff --git a/rtc_base/system/asm_defines.h b/rtc_base/system/asm_defines.h
+index a7f6aad272f174419437ad6622eaf09736f33c2e..4e324fcdddf42d45b56ba6fe3080de60ec131c56 100644
+--- a/rtc_base/system/asm_defines.h
++++ b/rtc_base/system/asm_defines.h
+@@ -36,6 +36,27 @@ bl _\name
+ .global _\name
+ .private_extern _\name
+ .endm
++#elif defined(_WIN32)
++// COFF has no symbol visibility (.hidden is ELF-only); a static-library symbol
++// stays module-private unless exported. `.def ... .type 32` marks the symbol as a
++// function, which on Windows-on-ARM also makes the linker give references to it
++// the Thumb bit.
++.macro GLOBAL_FUNCTION name
++.global \name
++.endm
++.macro DEFINE_FUNCTION name
++.def \name
++.scl 2
++.type 32
++.endef
++\name:
++.endm
++.macro CALL_FUNCTION name
++bl \name
++.endm
++.macro GLOBAL_LABEL name
++.global \name
++.endm
+ #else
+ .macro GLOBAL_FUNCTION name
+ .global \name

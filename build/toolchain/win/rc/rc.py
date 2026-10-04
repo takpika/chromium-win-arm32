@@ -14,12 +14,15 @@ options:
 -D<sym>        Define a macro for the preprocessor.
 /fo<out>       Set path of output .res file.
 /nologo        Ignored (rc.py doesn't print a logo by default).
-/showIncludes  Print referenced header and resource files."""
+/showIncludes  Print referenced header and resource files.
+--clang-cl=<p> Preprocess with the clang-cl at <p> instead of
+               third_party/llvm-build's."""
 
 from __future__ import print_function
 from collections import namedtuple
 import codecs
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -41,6 +44,7 @@ def ParseFlags():
   output = None
   input = None
   show_includes = False
+  clang_cl = None
   # Parse.
   for flag in sys.argv[1:]:
     if flag == '-h' or flag == '--help':
@@ -64,6 +68,8 @@ def ParseFlags():
       pass
     elif flag == '/showIncludes':
       show_includes = True
+    elif flag.startswith('--clang-cl='):
+      clang_cl = flag[len('--clang-cl='):]
     elif (flag.startswith('-') or
           (flag.startswith('/') and not os.path.exists(flag))):
       print('rc.py: error: unknown flag', flag, file=sys.stderr)
@@ -82,7 +88,7 @@ def ParseFlags():
     output = os.path.splitext(input)[0] + '.res'
   Flags = namedtuple('Flags', [
       'includes', 'defines', 'output', 'imsvcs', 'winsysroot', 'input',
-      'show_includes'
+      'show_includes', 'clang_cl'
   ])
   return Flags(includes=includes,
                defines=defines,
@@ -90,7 +96,8 @@ def ParseFlags():
                imsvcs=imsvcs,
                winsysroot=winsysroot,
                input=input,
-               show_includes=show_includes)
+               show_includes=show_includes,
+               clang_cl=clang_cl)
 
 
 def ReadInput(input):
@@ -124,12 +131,15 @@ def ReadInput(input):
 
 def Preprocess(rc_file_data, flags):
   """Runs the input file through the preprocessor."""
-  clang = os.path.join(SRC_DIR, 'third_party', 'llvm-build',
-                       'Release+Asserts', 'bin', 'clang-cl')
+  if flags.clang_cl:
+    clang = flags.clang_cl
+  else:
+    clang = os.path.join(SRC_DIR, 'third_party', 'llvm-build',
+                         'Release+Asserts', 'bin', 'clang-cl')
+    if sys.platform == 'win32':
+      clang += '.exe'
   # Let preprocessor write to a temp file so that it doesn't interfere
   # with /showIncludes output on stdout.
-  if sys.platform == 'win32':
-    clang += '.exe'
   temp_handle, temp_file = tempfile.mkstemp(suffix='.i')
   # Closing temp_handle immediately defeats the purpose of mkstemp(), but I
   # can't figure out how to let write to the temp file on Windows otherwise.
@@ -163,7 +173,9 @@ def Preprocess(rc_file_data, flags):
 
 
 def RunRc(preprocessed_output, is_utf8, flags):
-  if sys.platform.startswith('linux'):
+  if sys.platform.startswith('linux') and platform.machine() == 'aarch64':
+    rc = os.path.join(THIS_DIR, 'linux-arm64', 'rc')
+  elif sys.platform.startswith('linux'):
     rc = os.path.join(THIS_DIR, 'linux64', 'rc')
   elif sys.platform == 'darwin':
     rc = os.path.join(THIS_DIR, 'mac', 'rc')

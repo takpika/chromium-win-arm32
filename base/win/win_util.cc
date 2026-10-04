@@ -23,8 +23,9 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <tchar.h>  // Must be before tpcshrd.h or for any use of _T macro; also before
+                     // <strsafe.h> (mingw's tchar.h #errors if strsafe.h precedes it).
 #include <strsafe.h>
-#include <tchar.h>  // Must be before tpcshrd.h or for any use of _T macro
 #include <tpcshrd.h>
 #include <uiviewsettingsinterop.h>
 #include <windows.ui.viewmanagement.h>

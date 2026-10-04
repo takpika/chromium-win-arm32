@@ -34,7 +34,7 @@
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
-#if defined(COMPILER_MSVC)
+#if defined(COMPILER_MSVC) || defined(__MINGW32__)
 // Make math.h behave like other platforms.
 #define _USE_MATH_DEFINES
 // Even if math.h was already included, including math.h again with

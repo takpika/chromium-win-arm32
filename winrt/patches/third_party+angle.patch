@@ -1,0 +1,1547 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 66b54bdff930e891355295efcaf6404844b870fa..571c91fd87e3ddac9b0c49acc2978ef1b6d9eb71 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -311,10 +311,13 @@ config("build_id_config") {
+   ldflags = [ "-Wl,--build-id" ]
+ }
+ 
+-_use_copy_compiler_dll = angle_has_build && is_win && target_cpu != "arm64"
++_use_copy_compiler_dll = angle_has_build && is_win && target_cpu != "arm64" &&
++                        target_cpu != "arm"
+ 
+ # Windows ARM64 is available since 10.0.16299 so no need to copy
+-# d3dcompiler_47.dll because this file is available as inbox.
++# d3dcompiler_47.dll because this file is available as inbox. The same holds
++# for 32-bit ARM Windows (Windows RT 8.1, and ARM32 on Windows 10/11 ARM64):
++# d3dcompiler_47.dll is an inbox system DLL since Windows 8.1.
+ if (_use_copy_compiler_dll) {
+   # We also ship an older DLL for compatiblity with Windows 7 machines without
+   # the UCRT. This DLL isn't available in the standard SDK distribution.
+diff --git a/src/libANGLE/renderer/d3d/DynamicHLSL.cpp b/src/libANGLE/renderer/d3d/DynamicHLSL.cpp
+index 608d6db3c75f5f3c45bd8f1beafb0e87725b0b96..e0d88fe1aa1c5b71e00800dce3d3833bfdae6786 100644
+--- a/src/libANGLE/renderer/d3d/DynamicHLSL.cpp
++++ b/src/libANGLE/renderer/d3d/DynamicHLSL.cpp
+@@ -209,7 +209,14 @@ std::string DynamicHLSL::generateVertexShaderForInputLayout(
+     // The additional entries must appear first in the VS_INPUT layout because
+     // Windows Phone 8 era devices require per vertex data to physically come
+     // before per instance data in the shader.
+-    if (useInstancedPointSpriteEmulation)
++    if (useInstancedPointSpriteEmulation && mRenderer->getMajorShaderModel() == 2)
++    {
++        // Shader model 2 (Renderer9): vs_2_x accepts only D3D9 vertex declaration usages as
++        // input semantics, and has 16 input registers; one register carries the quad corner
++        // (xy, window orientation of dx_Position) and its point coordinate (zw).
++        structStream << "    float4 spriteCorner : POSITION0;\n";
++    }
++    else if (useInstancedPointSpriteEmulation)
+     {
+         structStream << "    float3 spriteVertexPos : SPRITEPOSITION0;\n"
+                      << "    float2 spriteTexCoord : SPRITETEXCOORD0;\n";
+@@ -738,9 +745,37 @@ void DynamicHLSL::generateShaderLinkHLSL(const gl::Context *context,
+         vertexGenerateOutput << ";\n";
+     }
+ 
++    // Shader model 2 (Renderer9::drawPointSpriteQuads): same quad as below, with the corner and
++    // point coordinate in one input. gl_FragCoord is interpolated from GL clip coordinates
++    // (dx_Position.y = -gl_Position.y on D3D9), so it gets the corner offset too and stays the
++    // fragment's window position inside the point. Outside GL_POINTS draws spriteCorner is 0.
++    if (useInstancedPointSpriteEmulation && shaderModel == 2)
++    {
++        vertexGenerateOutput
++            << "\n"
++            << "    gl_PointSize = clamp(gl_PointSize, minPointSize, maxPointSize);\n"
++            << "    float2 dx_SpriteOffset = input.spriteCorner.xy * gl_PointSize / "
++               "(dx_ViewCoords.xy * 2.0) * output.dx_Position.w;\n"
++            << "    output.dx_Position.xy += dx_SpriteOffset * dx_ViewAdjust.zw;\n";
++
++        // dx_SpriteOffset is in GL normalized coordinates of the GL viewport (dx_ViewCoords);
++        // dx_Position is in those of the D3D viewport, which differs when the GL viewport is
++        // clamped to the render target (dx_ViewAdjust.zw), while gl_FragCoord stays in GL clip
++        // coordinates (y is negated for dx_Position on D3D9).
++        if (vertexBuiltins.glFragCoord.enabled)
++        {
++            vertexGenerateOutput
++                << "    output.gl_FragCoord.xy += float2(dx_SpriteOffset.x, -dx_SpriteOffset.y);\n";
++        }
++
++        if (programMetadata.usesPointCoord())
++        {
++            vertexGenerateOutput << "    output.gl_PointCoord = input.spriteCorner.zw;\n";
++        }
++    }
+     // Instanced PointSprite emulation requires additional entries to calculate
+     // the final output vertex positions of the quad that represents each sprite.
+-    if (useInstancedPointSpriteEmulation)
++    else if (useInstancedPointSpriteEmulation)
+     {
+         vertexGenerateOutput
+             << "\n"
+@@ -895,7 +930,9 @@ void DynamicHLSL::generateShaderLinkHLSL(const gl::Context *context,
+                       << "    gl_FragCoord.w = rhw;\n";
+     }
+ 
+-    if (pixelBuiltins.glPointCoord.enabled && shaderModel >= 3)
++    // Shader model 2 gets gl_PointCoord from the point sprite quad (spriteCorner.zw) in the same
++    // orientation as the other emulations.
++    if (pixelBuiltins.glPointCoord.enabled && shaderModel >= 2)
+     {
+         pixelPrologue << "    gl_PointCoord.x = input.gl_PointCoord.x;\n"
+                       << "    gl_PointCoord.y = 1.0 - input.gl_PointCoord.y;\n";
+@@ -903,7 +940,15 @@ void DynamicHLSL::generateShaderLinkHLSL(const gl::Context *context,
+ 
+     if (fragmentShader && fragmentShader->usesFrontFacing())
+     {
+-        if (shaderModel <= 3)
++        if (shaderModel == 2)
++        {
++            // ps_2_x has no VFACE: Renderer9 draws the triangles of such programs one facing at a
++            // time and sets dx_DepthFront.z to +1 (front) or -1 (back) for each draw
++            // (StateManager9::setFrontFacingPassConstant); points and lines get the regular value,
++            // 0, which is front facing.
++            pixelPrologue << "    gl_FrontFacing = (dx_DepthFront.z >= 0.0);\n";
++        }
++        else if (shaderModel <= 3)
+         {
+             pixelPrologue << "    gl_FrontFacing = (vFace * dx_DepthFront.z >= 0.0);\n";
+         }
+@@ -1005,7 +1050,7 @@ void DynamicHLSL::generateShaderLinkHLSL(const gl::Context *context,
+     {
+         std::string pixelSource = fragmentShaderGL->getTranslatedSource(context);
+ 
+-        if (fragmentShader->usesFrontFacing())
++        if (fragmentShader->usesFrontFacing() && shaderModel != 2)
+         {
+             if (shaderModel >= 4)
+             {
+@@ -1574,7 +1619,10 @@ void BuiltinVaryingsD3D::updateBuiltins(gl::ShaderType shaderType,
+     {
+         // SM3 reserves the TEXCOORD semantic for point sprite texcoords (gl_PointCoord)
+         // In D3D11 we manually compute gl_PointCoord in the GS.
+-        if (metadata.getRendererMajorShaderModel() >= 4)
++        // SM2 never uses hardware point sprites (see InitializeFeatures in renderer9_utils.cpp),
++        // so gl_PointCoord is passed like a varying there as well.
++        if (metadata.getRendererMajorShaderModel() >= 4 ||
++            metadata.getRendererMajorShaderModel() == 2)
+         {
+             builtins->glPointCoord.enable(userSemantic, reservedSemanticIndex++);
+         }
+diff --git a/src/libANGLE/renderer/d3d/ProgramD3D.cpp b/src/libANGLE/renderer/d3d/ProgramD3D.cpp
+index 9ebc28809b450cc4b04451f5f7f7bd006a141e8d..f7ef9c6bfd3c510a7d5240c54ff6c107e38d24b9 100644
+--- a/src/libANGLE/renderer/d3d/ProgramD3D.cpp
++++ b/src/libANGLE/renderer/d3d/ProgramD3D.cpp
+@@ -210,6 +210,13 @@ bool FindFlatInterpolationVarying(const gl::Context *context,
+     return false;
+ }
+ 
++// The translator defines GL_USES_FRONT_FACING in the fragment HLSL when the shader reads
++// gl_FrontFacing; ShaderD3D::compile tests the same marker.
++bool HLSLUsesFrontFacing(const std::string &fragmentHLSL)
++{
++    return fragmentHLSL.find("GL_USES_FRONT_FACING") != std::string::npos;
++}
++
+ // Helper class that gathers uniform info from the default uniform block.
+ class UniformEncodingVisitorD3D : public sh::BlockEncoderVisitor
+ {
+@@ -471,8 +478,9 @@ bool ProgramD3DMetadata::usesPointSize() const
+ 
+ bool ProgramD3DMetadata::usesInsertedPointCoordValue() const
+ {
++    // Shader model 2 (D3D9) passes gl_PointCoord as a varying too (no hardware point sprites).
+     return (!usesPointSize() || !mUsesInstancedPointSpriteEmulation) && usesPointCoord() &&
+-           mRendererMajorShaderModel >= 4;
++           (mRendererMajorShaderModel >= 4 || mRendererMajorShaderModel == 2);
+ }
+ 
+ bool ProgramD3DMetadata::usesViewScale() const
+@@ -520,7 +528,10 @@ bool ProgramD3DMetadata::usesTransformFeedbackGLPosition() const
+     // gl_Position only needs to be outputted from the vertex shader if transform feedback is
+     // active. This isn't supported on D3D11 Feature Level 9_3, so we don't output gl_Position from
+     // the vertex shader in this case. This saves us 1 output vector.
+-    return !(mRendererMajorShaderModel >= 4 && mShaderModelSuffix != "");
++    // Nor on shader model 2 (D3D9 has no transform feedback), where the vector saved is one of
++    // the eight TEXCOORD outputs of vs_2_x.
++    return !(mRendererMajorShaderModel >= 4 && mShaderModelSuffix != "") &&
++           mRendererMajorShaderModel != 2;
+ }
+ 
+ bool ProgramD3DMetadata::usesSystemValuePointSize() const
+@@ -705,6 +716,7 @@ ProgramD3D::ProgramD3D(const gl::ProgramState &state, RendererD3D *renderer)
+       mRenderer(renderer),
+       mDynamicHLSL(nullptr),
+       mUsesPointSize(false),
++      mUsesFrontFacing(false),
+       mUsesFlatInterpolation(false),
+       mUsedShaderSamplerRanges({}),
+       mDirtySamplerMapping(true),
+@@ -1152,6 +1164,9 @@ std::unique_ptr<rx::LinkEvent> ProgramD3D::load(const gl::Context *context,
+     stream->readBool(&mUsesViewID);
+     stream->readBool(&mUsesPointSize);
+     stream->readBool(&mUsesFlatInterpolation);
++    // Not serialized: derived from the fragment HLSL loaded above, so the binary layout is
++    // upstream's.
++    mUsesFrontFacing = HLSLUsesFrontFacing(mShaderHLSL[gl::ShaderType::Fragment]);
+ 
+     const size_t pixelShaderKeySize = stream->readInt<size_t>();
+     mPixelShaderKey.resize(pixelShaderKeySize);
+@@ -2179,6 +2194,7 @@ std::unique_ptr<LinkEvent> ProgramD3D::link(const gl::Context *context,
+ 
+         const ShaderD3D *vertexShader = shadersD3D[gl::ShaderType::Vertex];
+         mUsesPointSize                = vertexShader && vertexShader->usesPointSize();
++        mUsesFrontFacing = HLSLUsesFrontFacing(mShaderHLSL[gl::ShaderType::Fragment]);
+         mDynamicHLSL->getPixelShaderOutputKey(data, mState, metadata, &mPixelShaderKey);
+         mUsesFragDepth            = metadata.usesFragDepth();
+         mUsesVertexID             = metadata.usesVertexID();
+@@ -3082,6 +3098,7 @@ void ProgramD3D::reset()
+     mUsesViewID               = false;
+     mPixelShaderKey.clear();
+     mUsesPointSize         = false;
++    mUsesFrontFacing       = false;
+     mUsesFlatInterpolation = false;
+ 
+     SafeDeleteContainer(mD3DUniforms);
+diff --git a/src/libANGLE/renderer/d3d/ProgramD3D.h b/src/libANGLE/renderer/d3d/ProgramD3D.h
+index 7dac480d969da611353ad8d944331e65cc78b478..65be7209c5a7bf9b659a25f78e2e735f24576669 100644
+--- a/src/libANGLE/renderer/d3d/ProgramD3D.h
++++ b/src/libANGLE/renderer/d3d/ProgramD3D.h
+@@ -213,6 +213,8 @@ class ProgramD3D : public ProgramImpl
+     gl::RangeUI getUsedImageRange(gl::ShaderType type, bool readonly) const;
+ 
+     bool usesPointSize() const { return mUsesPointSize; }
++    // Shader model 2 (Renderer9) draws the triangles of such programs one facing at a time.
++    bool usesFrontFacing() const { return mUsesFrontFacing; }
+     bool usesPointSpriteEmulation() const;
+     bool usesGeometryShader(const gl::State &state, gl::PrimitiveMode drawMode) const;
+     bool usesGeometryShaderForPointSpriteEmulation() const;
+@@ -561,6 +563,7 @@ class ProgramD3D : public ProgramImpl
+     std::string mGeometryShaderPreamble;
+ 
+     bool mUsesPointSize;
++    bool mUsesFrontFacing;
+     bool mUsesFlatInterpolation;
+ 
+     gl::ShaderMap<std::unique_ptr<UniformStorageD3D>> mShaderUniformStorages;
+diff --git a/src/libANGLE/renderer/d3d/ShaderD3D.cpp b/src/libANGLE/renderer/d3d/ShaderD3D.cpp
+index 4ed481c102353b40d81250cf9fd00ab591f04de5..a6f4caad390e447f9508d1f95be799a18a684546 100644
+--- a/src/libANGLE/renderer/d3d/ShaderD3D.cpp
++++ b/src/libANGLE/renderer/d3d/ShaderD3D.cpp
+@@ -250,6 +250,16 @@ std::shared_ptr<WaitableCompileEvent> ShaderD3D::compile(const gl::Context *cont
+     }
+ #endif
+ 
++    if (mRenderer->getRendererClass() == RENDERER_D3D9 &&
++        (context->isWebGL() || context->getState().hasRobustAccess()))
++    {
++        // Direct3D 9 shaders index uniform arrays through constant registers, which have no bounds
++        // check (Direct3D 11 constant buffer reads out of range return zero). WebGL and robust
++        // contexts must not read outside an array, so clamp indirect indices for them (the Vulkan
++        // backend does so for WebGL and robust contexts, the GL backend for WebGL).
++        options->clampIndirectArrayBounds = true;
++    }
++
+     if (features.expandIntegerPowExpressions.enabled)
+     {
+         options->expandSelectHLSLIntegerPowExpressions = true;
+diff --git a/src/libANGLE/renderer/d3d/d3d9/Renderer9.cpp b/src/libANGLE/renderer/d3d/d3d9/Renderer9.cpp
+index d80997392d2d5d25cadc1381c84929401bce90a9..63de07f2b53275b64d0f56cefa7d84396d1e13a1 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/Renderer9.cpp
++++ b/src/libANGLE/renderer/d3d/d3d9/Renderer9.cpp
+@@ -60,10 +60,15 @@
+ #    define ANGLE_COMPILE_OPTIMIZATION_LEVEL D3DCOMPILE_OPTIMIZATION_LEVEL3
+ #endif
+ 
+-// Enable ANGLE_SUPPORT_SHADER_MODEL_2 if you wish devices with only shader model 2.
+-// Such a device would not be conformant.
++// Shader model 2 devices are accepted. What upstream's shader model 2 path lacked is supplied here
++// and in DynamicHLSL/ProgramD3D: ps_2_x has no VFACE, so triangles of gl_FrontFacing programs are
++// drawn one facing at a time (drawTrianglesPerFacing); shader model 2 point sprites overwrite every
++// varying, so points (drawn only for programs that write gl_PointSize, see skipDraw) become quads
++// (drawPointSpriteQuads); the compile profiles follow the device caps. Such devices are Direct3D
++// feature level 9_x GPUs, which the D3D11 renderer does not accept (e.g. Surface 2: NVIDIA
++// Tegra 4, D3D11 feature level 9_1). Selection stays by device caps only.
+ #ifndef ANGLE_SUPPORT_SHADER_MODEL_2
+-#    define ANGLE_SUPPORT_SHADER_MODEL_2 0
++#    define ANGLE_SUPPORT_SHADER_MODEL_2 1
+ #endif
+ 
+ namespace rx
+@@ -82,6 +87,34 @@ enum
+     MAX_TEXTURE_IMAGE_UNITS_VTF_SM3 = 4
+ };
+ 
++// Shader model 2 pixel shaders: plain ps_2_0 limits a shader to 64 arithmetic and 32 texture
++// instructions even on hardware with 512 instruction slots. ps_2_b is chosen when the device meets
++// it, with the ps_2_b condition of D3DXGetPixelShaderProfile (as implemented by Wine's
++// d3dx9_36/shader.c: NumTemps >= 32 and no texture instruction limit). The rule's ps_2_a branch
++// (gradient instructions and predication) is not taken over: no device this port runs on reports
++// those caps, so it could not be verified.
++const char *GetShaderModel2PixelProfile(const D3DCAPS9 &caps)
++{
++    const D3DPSHADERCAPS2_0 &ps = caps.PS20Caps;
++    if (ps.NumTemps >= 32 && (ps.Caps & D3DPS20CAPS_NOTEXINSTRUCTIONLIMIT) != 0)
++    {
++        return "2_b";
++    }
++    return "2_0";
++}
++
++// Shader model 2 point sprite quads: the corners of each point as the vertex shader's
++// spriteCorner input (DynamicHLSL::generateVertexShaderForInputLayout), xy = corner in dx_Position
++// orientation, zw = point coordinate, the same values as the D3D11 feature level 9_3 emulation
++// (StateManager11.cpp kPointSpriteVertices), and the number of points per draw, which keeps the
++// quad index buffer 16-bit.
++constexpr float kPointSpriteQuadCorners[4][4] = {{-1.0f, -1.0f, 0.0f, 1.0f},
++                                                 {-1.0f, 1.0f, 0.0f, 0.0f},
++                                                 {1.0f, 1.0f, 1.0f, 0.0f},
++                                                 {1.0f, -1.0f, 1.0f, 1.0f}};
++constexpr UINT kPointSpriteQuadsPerDraw        = 4096;
++constexpr UINT kPointSpriteQuadIndicesPerDraw  = kPointSpriteQuadsPerDraw * 6;
++
+ template <typename T>
+ static void DrawPoints(IDirect3DDevice9 *device, GLsizei count, const void *indices, int minIndex)
+ {
+@@ -140,6 +173,12 @@ Renderer9::Renderer9(egl::Display *display) : RendererD3D(display), mStateManage
+     mLineLoopIB        = nullptr;
+     mCountingIB        = nullptr;
+ 
++    mPointSpriteQuadVB      = nullptr;
++    mPointSpriteQuadVBSize  = 0;
++    mZeroPointSpriteCornerVB = nullptr;
++    mPointSpriteQuadIB     = nullptr;
++    mTriangleListIB        = nullptr;
++
+     mMaxNullColorbufferLRU = 0;
+     for (int i = 0; i < NUM_NULL_COLORBUFFER_CACHE_ENTRIES; i++)
+     {
+@@ -403,6 +442,8 @@ egl::Error Renderer9::initializeDevice()
+ 
+     mSceneStarted = false;
+ 
++    mDepthBiasResolutionBits.clear();
++
+     ASSERT(!mBlit);
+     mBlit = new Blit9(this);
+ 
+@@ -1323,6 +1364,34 @@ angle::Result Renderer9::applyRenderTarget(const gl::Context *context,
+ 
+             depthSize   = format.depthBits;
+             stencilSize = format.stencilBits;
++
++            // StateManager9 uses the depth size only to scale polygon offset units by
++            // r = 2^-depthSize (GL ES 2.0.25 section 3.5.2: r is the smallest difference the depth
++            // buffer resolves). Where this device's surfaces of the attachment's format resolve less
++            // than the format's own depth bits, it gets the bits really resolved. Measured once per
++            // format and device on first use (d3d9::MeasureDepthBiasResolutionBits; 4-11 ms on
++            // Tegra 4, under 2 ms on Adreno); where the measurement cannot be made, the format's own
++            // bits are kept (upstream's value), also once per format and device.
++            const D3DFORMAT depthFormat   = depthStencilRenderTarget->getD3DFormat();
++            const unsigned int formatBits = d3d9::GetD3DFormatInfo(depthFormat).depthBits;
++            auto resolution               = mDepthBiasResolutionBits.find(depthFormat);
++            if (resolution == mDepthBiasResolutionBits.end())
++            {
++                endScene();
++                unsigned int measuredBits =
++                    d3d9::MeasureDepthBiasResolutionBits(mDevice, depthFormat, formatBits);
++                if (measuredBits == 0)
++                {
++                    WARN() << "Could not measure the depth bias resolution of D3DFORMAT "
++                           << depthFormat << "; polygon offset uses its " << formatBits << " bits.";
++                    measuredBits = formatBits;
++                }
++                resolution = mDepthBiasResolutionBits.emplace(depthFormat, measuredBits).first;
++            }
++            if (resolution->second < formatBits)
++            {
++                depthSize = std::min(depthSize, resolution->second);
++            }
+         }
+         else
+         {
+@@ -1358,9 +1427,18 @@ angle::Result Renderer9::applyVertexBuffer(const gl::Context *context,
+     ANGLE_TRY(mVertexDataManager->prepareVertexData(context, first, count, &mTranslatedAttribCache,
+                                                     instances));
+ 
++    // Programs that write gl_PointSize read the point sprite quad corner on shader model 2
++    // (InitializeFeatures); outside drawPointSpriteQuads it is 0.
++    IDirect3DVertexBuffer9 *zeroPointSpriteCorner = nullptr;
++    const ProgramD3D *programD3D = GetImplAs<ProgramD3D>(state.getProgram());
++    if (programD3D->usesPointSize() && programD3D->usesInstancedPointSpriteEmulation())
++    {
++        ANGLE_TRY(getZeroPointSpriteCornerVB(context, &zeroPointSpriteCorner));
++    }
++
+     return mVertexDeclarationCache.applyDeclaration(context, mDevice, mTranslatedAttribCache,
+                                                     state.getProgram(), first, instances,
+-                                                    &mRepeatDraw);
++                                                    &mRepeatDraw, zeroPointSpriteCorner);
+ }
+ 
+ // Applies the indices and element array bindings to the Direct3D 9 device
+@@ -1431,6 +1509,12 @@ angle::Result Renderer9::drawArraysImpl(const gl::Context *context,
+     }
+ 
+     // Regular case
++    if (drawsFacingsSeparately(GetImplAs<ProgramD3D>(context->getState().getProgram()), mode))
++    {
++        return drawTrianglesPerFacing(context, mode, count, gl::DrawElementsType::InvalidEnum,
++                                      nullptr, 0, static_cast<UINT>(count), 0);
++    }
++
+     mDevice->DrawPrimitive(mPrimitiveType, 0, mPrimitiveCount);
+     return angle::Result::Continue;
+ }
+@@ -1471,6 +1555,12 @@ angle::Result Renderer9::drawElementsImpl(const gl::Context *context,
+         return drawLineLoop(context, count, type, indices, minIndex, elementArrayBuffer);
+     }
+ 
++    if (drawsFacingsSeparately(GetImplAs<ProgramD3D>(context->getState().getProgram()), mode))
++    {
++        return drawTrianglesPerFacing(context, mode, count, type, indices, minIndex,
++                                      static_cast<UINT>(vertexCount), indexInfo.startIndex);
++    }
++
+     for (int i = 0; i < mRepeatDraw; i++)
+     {
+         mDevice->DrawIndexedPrimitive(mPrimitiveType, -minIndex, minIndex,
+@@ -1745,6 +1835,528 @@ angle::Result Renderer9::getCountingIB(const gl::Context *context,
+     return angle::Result::Continue;
+ }
+ 
++angle::Result Renderer9::getZeroPointSpriteCornerVB(const gl::Context *context,
++                                                    IDirect3DVertexBuffer9 **outVB)
++{
++    if (!mZeroPointSpriteCornerVB)
++    {
++        // Published only once written, so a failed Lock leaves no unwritten buffer behind.
++        constexpr UINT kSize                = 4 * sizeof(float);
++        IDirect3DVertexBuffer9 *zeroCorner = nullptr;
++        HRESULT result = createVertexBuffer(kSize, D3DUSAGE_WRITEONLY, &zeroCorner);
++        ANGLE_TRY_HR(GetImplAs<Context9>(context), result,
++                     "Failed to create the point sprite corner vertex buffer");
++
++        void *mapped = nullptr;
++        result       = zeroCorner->Lock(0, kSize, &mapped, 0);
++        if (FAILED(result))
++        {
++            SafeRelease(zeroCorner);
++        }
++        ANGLE_TRY_HR(GetImplAs<Context9>(context), result,
++                     "Failed to lock the point sprite corner vertex buffer");
++        memset(mapped, 0, kSize);
++        zeroCorner->Unlock();
++        mZeroPointSpriteCornerVB = zeroCorner;
++    }
++
++    *outVB = mZeroPointSpriteCornerVB;
++    return angle::Result::Continue;
++}
++
++angle::Result Renderer9::getPointSpriteQuadIB(const gl::Context *context,
++                                              StaticIndexBufferInterface **outIB)
++{
++    if (!mPointSpriteQuadIB)
++    {
++        // Two triangles per quad, kPointSpriteQuadsPerDraw quads whose triangles are
++        // counter-clockwise in GL window coordinates, followed by the same quads clockwise.
++        const unsigned int spaceNeeded = 2 * kPointSpriteQuadIndicesPerDraw * sizeof(GLushort);
++
++        std::unique_ptr<StaticIndexBufferInterface> indexBuffer(
++            new StaticIndexBufferInterface(this));
++        ANGLE_TRY(indexBuffer->reserveBufferSpace(context, spaceNeeded,
++                                                  gl::DrawElementsType::UnsignedShort));
++
++        void *mappedMemory = nullptr;
++        ANGLE_TRY(indexBuffer->mapBuffer(context, spaceNeeded, &mappedMemory, nullptr));
++
++        static constexpr GLushort kCounterClockwise[6] = {0, 1, 2, 0, 2, 3};
++        static constexpr GLushort kClockwise[6]        = {0, 2, 1, 0, 3, 2};
++        GLushort *data                                 = static_cast<GLushort *>(mappedMemory);
++        for (UINT quad = 0; quad < kPointSpriteQuadsPerDraw; quad++)
++        {
++            for (UINT i = 0; i < 6; i++)
++            {
++                data[quad * 6 + i] = static_cast<GLushort>(quad * 4 + kCounterClockwise[i]);
++                data[kPointSpriteQuadIndicesPerDraw + quad * 6 + i] =
++                    static_cast<GLushort>(quad * 4 + kClockwise[i]);
++            }
++        }
++
++        ANGLE_TRY(indexBuffer->unmapBuffer(context));
++        mPointSpriteQuadIB = indexBuffer.release();
++    }
++
++    *outIB = mPointSpriteQuadIB;
++    return angle::Result::Continue;
++}
++
++angle::Result Renderer9::drawPointSpriteQuads(const gl::Context *context,
++                                              GLint first,
++                                              GLsizei count,
++                                              gl::DrawElementsType type,
++                                              const void *indices)
++{
++    // Shader model 2 point sprites overwrite every TEXCOORD input of the pixel shader, which are
++    // also the varyings, so each point is drawn as a quad of four vertices that all carry the
++    // point's attributes plus a corner (the instanced emulation of D3D11 feature level 9_3,
++    // expanded here because instancing needs shader model 3); the vertex shader moves the corners
++    // and computes gl_PointCoord (DynamicHLSL::generateShaderLinkHLSL).
++    Context9 *context9           = GetImplAs<Context9>(context);
++    const gl::State &state       = context->getState();
++    const gl::VertexArray *vao   = state.getVertexArray();
++    ProgramD3D *programD3D       = GetImplAs<ProgramD3D>(state.getProgram());
++    const auto &semanticIndexes  = programD3D->getAttribLocationToD3DSemantics();
++    const auto &vertexAttributes = vao->getVertexAttributes();
++    const auto &vertexBindings   = vao->getVertexBindings();
++
++    // The vertex of every point.
++    mPointSpriteVertexIndices.resize(count);
++    GLuint maxVertex = 0;
++    if (type == gl::DrawElementsType::InvalidEnum)
++    {
++        for (GLsizei i = 0; i < count; i++)
++        {
++            mPointSpriteVertexIndices[i] = static_cast<GLuint>(first + i);
++        }
++        maxVertex = static_cast<GLuint>(first + count - 1);
++    }
++    else
++    {
++        const uint8_t *indexData       = static_cast<const uint8_t *>(indices);
++        gl::Buffer *elementArrayBuffer = vao->getElementArrayBuffer();
++        if (elementArrayBuffer)
++        {
++            BufferD3D *storage        = GetImplAs<BufferD3D>(elementArrayBuffer);
++            const uint8_t *bufferData = nullptr;
++            ANGLE_TRY(storage->getData(context, &bufferData));
++            indexData = bufferData + reinterpret_cast<intptr_t>(indices);
++        }
++
++        for (GLsizei i = 0; i < count; i++)
++        {
++            GLuint index = 0;
++            switch (type)
++            {
++                case gl::DrawElementsType::UnsignedByte:
++                    index = reinterpret_cast<const GLubyte *>(indexData)[i];
++                    break;
++                case gl::DrawElementsType::UnsignedShort:
++                    index = reinterpret_cast<const GLushort *>(indexData)[i];
++                    break;
++                case gl::DrawElementsType::UnsignedInt:
++                    index = reinterpret_cast<const GLuint *>(indexData)[i];
++                    break;
++                default:
++                    ANGLE_HR_UNREACHABLE(context9);
++            }
++            mPointSpriteVertexIndices[i] = index;
++            maxVertex                    = std::max(maxVertex, index);
++        }
++    }
++
++    // One stream per active attribute, as in VertexDeclarationCache::applyDeclaration(), each
++    // vertex repeated for the four corners, plus the corner stream.
++    struct QuadStream
++    {
++        UINT stream;
++        BYTE usageIndex;
++        const d3d9::VertexFormat *format;
++        const uint8_t *data;
++        size_t stride;  // 0: the same value (current attribute value) for every point
++        UINT offset;
++    };
++    std::array<QuadStream, gl::MAX_VERTEX_ATTRIBS> streams;
++    size_t streamCount = 0;
++    gl::AttributesMask usedStreams;
++
++    for (size_t attribIndex : state.getProgramExecutable()->getActiveAttribLocationsMask())
++    {
++        const gl::VertexAttribute &attrib = vertexAttributes[attribIndex];
++        const gl::VertexBinding &binding  = vertexBindings[attrib.bindingIndex];
++        const gl::VertexAttribCurrentValueData &currentValue =
++            state.getVertexAttribCurrentValue(attribIndex);
++        ASSERT(binding.getDivisor() == 0);
++
++        QuadStream &quadStream = streams[streamCount++];
++        quadStream.stream      = static_cast<UINT>(attribIndex);
++        quadStream.usageIndex  = static_cast<BYTE>(semanticIndexes[attribIndex]);
++        quadStream.format      = &d3d9::GetVertexFormatInfo(
++            mDeviceCaps.DeclTypes, gl::GetVertexFormatID(attrib, currentValue.Type));
++        usedStreams.set(attribIndex);
++
++        if (attrib.enabled)
++        {
++            quadStream.stride  = gl::ComputeVertexAttributeStride(attrib, binding);
++            gl::Buffer *buffer = binding.getBuffer().get();
++            if (buffer)
++            {
++                BufferD3D *storage        = GetImplAs<BufferD3D>(buffer);
++                const uint8_t *bufferData = nullptr;
++                ANGLE_TRY(storage->getData(context, &bufferData));
++
++                const GLintptr offset = gl::ComputeVertexAttributeOffset(attrib, binding);
++                angle::CheckedNumeric<size_t> lastByte = maxVertex;
++                lastByte *= quadStream.stride;
++                lastByte += offset;
++                lastByte += gl::ComputeVertexAttributeTypeSize(attrib);
++                ANGLE_CHECK(context9,
++                            lastByte.IsValid() && lastByte.ValueOrDie() <= storage->getSize(),
++                            "Vertex buffer is not big enough for the draw call.",
++                            GL_INVALID_OPERATION);
++                quadStream.data = bufferData + offset;
++            }
++            else
++            {
++                quadStream.data = static_cast<const uint8_t *>(attrib.pointer);
++            }
++        }
++        else
++        {
++            quadStream.data   = reinterpret_cast<const uint8_t *>(currentValue.Values.FloatValues);
++            quadStream.stride = 0;
++        }
++    }
++
++    const UINT cornerStream    = VertexDeclarationCache::kPointSpriteCornerStream;
++    ASSERT(!usedStreams.test(cornerStream));
++    constexpr UINT kCornerSize = sizeof(kPointSpriteQuadCorners[0]);
++
++    D3DVERTEXELEMENT9 elements[VertexDeclarationCache::kMaxElements];
++    size_t elementCount = 0;
++    for (size_t i = 0; i < streamCount; i++)
++    {
++        D3DVERTEXELEMENT9 &element = elements[elementCount++];
++        element.Stream             = static_cast<WORD>(streams[i].stream);
++        element.Offset             = 0;
++        element.Type               = static_cast<BYTE>(streams[i].format->nativeFormat);
++        element.Method             = D3DDECLMETHOD_DEFAULT;
++        element.Usage              = D3DDECLUSAGE_TEXCOORD;
++        element.UsageIndex         = streams[i].usageIndex;
++    }
++    {
++        D3DVERTEXELEMENT9 &element = elements[elementCount++];
++        element.Stream             = static_cast<WORD>(cornerStream);
++        element.Offset             = 0;
++        element.Type               = D3DDECLTYPE_FLOAT4;
++        element.Method             = D3DDECLMETHOD_DEFAULT;
++        element.Usage              = D3DDECLUSAGE_POSITION;
++        element.UsageIndex         = 0;
++    }
++    static const D3DVERTEXELEMENT9 end = D3DDECL_END();
++    elements[elementCount++]           = end;
++
++    // From here on the device's declaration, streams and raster state differ from what the caches
++    // record. However this function returns, including the ANGLE_TRY error paths below, the next
++    // draw re-applies them.
++    struct ReapplyDrawState
++    {
++        ~ReapplyDrawState()
++        {
++            stateManager->forceSetRasterState();
++            declarationCache->markStateDirty();
++        }
++        StateManager9 *stateManager;
++        VertexDeclarationCache *declarationCache;
++    } reapplyDrawState{&mStateManager, &mVertexDeclarationCache};
++
++    ANGLE_TRY(mVertexDeclarationCache.applyElements(context, mDevice, elements, elementCount));
++
++    StaticIndexBufferInterface *quadIB = nullptr;
++    ANGLE_TRY(getPointSpriteQuadIB(context, &quadIB));
++    if (mAppliedIBSerial != quadIB->getSerial())
++    {
++        mDevice->SetIndices(GetAs<IndexBuffer9>(quadIB->getIndexBuffer())->getBuffer());
++        mAppliedIBSerial = quadIB->getSerial();
++    }
++
++    // Points take the front stencil state (OpenGL ES 2.0 section 4.1.4); with two-sided stencil
++    // D3D picks it by winding, so the quads wind like front-facing triangles: the corner order of
++    // kPointSpriteQuadCorners is counter-clockwise in GL window coordinates. Culling and polygon
++    // offset apply to polygons only.
++    const bool frontFaceCCW   = state.getRasterizerState().frontFace == GL_CCW;
++    const UINT quadStartIndex = frontFaceCCW ? 0 : kPointSpriteQuadIndicesPerDraw;
++    mDevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
++    mDevice->SetRenderState(D3DRS_DEPTHBIAS, 0);
++    mDevice->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, 0);
++
++    startScene();
++
++    constexpr GLsizei kQuadsPerDraw = static_cast<GLsizei>(kPointSpriteQuadsPerDraw);
++    for (GLsizei drawStart = 0; drawStart < count; drawStart += kQuadsPerDraw)
++    {
++        const UINT quadCount   = static_cast<UINT>(std::min(count - drawStart, kQuadsPerDraw));
++        const UINT vertexCount = quadCount * 4;
++
++        UINT bufferSize = 0;
++        for (size_t i = 0; i < streamCount; i++)
++        {
++            streams[i].offset = bufferSize;
++            bufferSize += roundUp(
++                static_cast<UINT>(streams[i].format->outputElementSize) * vertexCount, 16u);
++        }
++        const UINT cornerOffset = bufferSize;
++        bufferSize += kCornerSize * vertexCount;
++
++        if (bufferSize > mPointSpriteQuadVBSize)
++        {
++            SafeRelease(mPointSpriteQuadVB);
++            mPointSpriteQuadVBSize = 0;
++            HRESULT result = createVertexBuffer(bufferSize, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY,
++                                                &mPointSpriteQuadVB);
++            ANGLE_TRY_HR(context9, result, "Failed to create the point sprite vertex buffer");
++            mPointSpriteQuadVBSize = bufferSize;
++        }
++
++        void *mapped   = nullptr;
++        HRESULT result = mPointSpriteQuadVB->Lock(0, bufferSize, &mapped, D3DLOCK_DISCARD);
++        ANGLE_TRY_HR(context9, result, "Failed to lock the point sprite vertex buffer");
++        uint8_t *vertexData = static_cast<uint8_t *>(mapped);
++
++        for (UINT quad = 0; quad < quadCount; quad++)
++        {
++            const GLuint vertex = mPointSpriteVertexIndices[drawStart + quad];
++            for (size_t i = 0; i < streamCount; i++)
++            {
++                const QuadStream &quadStream = streams[i];
++                const size_t elementSize     = quadStream.format->outputElementSize;
++                uint8_t *quadVertices = vertexData + quadStream.offset + quad * 4 * elementSize;
++
++                quadStream.format->copyFunction(quadStream.data + vertex * quadStream.stride,
++                                                quadStream.stride, 1, quadVertices);
++                for (UINT corner = 1; corner < 4; corner++)
++                {
++                    memcpy(quadVertices + corner * elementSize, quadVertices, elementSize);
++                }
++            }
++
++            memcpy(vertexData + cornerOffset + quad * 4 * kCornerSize, kPointSpriteQuadCorners,
++                   4 * kCornerSize);
++        }
++
++        mPointSpriteQuadVB->Unlock();
++
++        for (size_t i = 0; i < streamCount; i++)
++        {
++            mDevice->SetStreamSource(streams[i].stream, mPointSpriteQuadVB, streams[i].offset,
++                                     static_cast<UINT>(streams[i].format->outputElementSize));
++        }
++        mDevice->SetStreamSource(cornerStream, mPointSpriteQuadVB, cornerOffset, kCornerSize);
++
++        mDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, vertexCount, quadStartIndex,
++                                      quadCount * 2);
++    }
++
++    return angle::Result::Continue;
++}
++
++bool Renderer9::drawsFacingsSeparately(const ProgramD3D *programD3D, gl::PrimitiveMode mode) const
++{
++    return getMajorShaderModel() == 2 && programD3D->usesFrontFacing() &&
++           gl::IsTriangleMode(mode);
++}
++
++angle::Result Renderer9::applyTriangleListIndices(const gl::Context *context,
++                                                  gl::PrimitiveMode mode,
++                                                  GLsizei count,
++                                                  gl::DrawElementsType type,
++                                                  const void *indices,
++                                                  UINT *outStartIndex)
++{
++    ASSERT(mode == gl::PrimitiveMode::TriangleStrip || mode == gl::PrimitiveMode::TriangleFan);
++    ASSERT(count >= 3);
++    Context9 *context9 = GetImplAs<Context9>(context);
++
++    // Raw indices of an indexed draw, as in drawLineLoop().
++    const uint8_t *indexData = static_cast<const uint8_t *>(indices);
++    if (type != gl::DrawElementsType::InvalidEnum)
++    {
++        gl::Buffer *elementArrayBuffer =
++            context->getState().getVertexArray()->getElementArrayBuffer();
++        if (elementArrayBuffer)
++        {
++            BufferD3D *storage        = GetImplAs<BufferD3D>(elementArrayBuffer);
++            const uint8_t *bufferData = nullptr;
++            ANGLE_TRY(storage->getData(context, &bufferData));
++            indexData = bufferData + reinterpret_cast<intptr_t>(indices);
++        }
++    }
++    auto sourceIndex = [type, indexData](GLsizei i) -> GLuint {
++        switch (type)
++        {
++            case gl::DrawElementsType::UnsignedByte:
++                return reinterpret_cast<const GLubyte *>(indexData)[i];
++            case gl::DrawElementsType::UnsignedShort:
++                return reinterpret_cast<const GLushort *>(indexData)[i];
++            case gl::DrawElementsType::UnsignedInt:
++                return reinterpret_cast<const GLuint *>(indexData)[i];
++            default:
++                return static_cast<GLuint>(i);  // Non-indexed draw
++        }
++    };
++
++    // Triangle t of a strip is (t, t+1, t+2) for even t and (t+1, t, t+2) for odd t, which keeps
++    // every triangle's winding; triangle t of a fan is (0, t+1, t+2).
++    const bool uint32Indices = getNativeExtensions().elementIndexUintOES;
++    const gl::DrawElementsType indexType =
++        uint32Indices ? gl::DrawElementsType::UnsignedInt : gl::DrawElementsType::UnsignedShort;
++    const size_t indexSize = uint32Indices ? sizeof(GLuint) : sizeof(GLushort);
++    const size_t triangleCount = static_cast<size_t>(count) - 2;
++
++    ANGLE_CHECK(context9,
++                triangleCount * 3 <= std::numeric_limits<unsigned int>::max() / indexSize &&
++                    (uint32Indices || type != gl::DrawElementsType::InvalidEnum ||
++                     count <= std::numeric_limits<GLushort>::max() + 1),
++                "Failed to create a triangle list index buffer, too many indices required.",
++                GL_OUT_OF_MEMORY);
++
++    if (!mTriangleListIB)
++    {
++        mTriangleListIB = new StreamingIndexBufferInterface(this);
++        ANGLE_TRY(
++            mTriangleListIB->reserveBufferSpace(context, INITIAL_INDEX_BUFFER_SIZE, indexType));
++    }
++
++    const unsigned int spaceNeeded = static_cast<unsigned int>(triangleCount * 3 * indexSize);
++    ANGLE_TRY(mTriangleListIB->reserveBufferSpace(context, spaceNeeded, indexType));
++
++    void *mappedMemory  = nullptr;
++    unsigned int offset = 0;
++    ANGLE_TRY(mTriangleListIB->mapBuffer(context, spaceNeeded, &mappedMemory, &offset));
++
++    for (size_t t = 0; t < triangleCount; t++)
++    {
++        const GLsizei i = static_cast<GLsizei>(t);
++        GLuint triangle[3];
++        if (mode == gl::PrimitiveMode::TriangleFan)
++        {
++            triangle[0] = sourceIndex(0);
++            triangle[1] = sourceIndex(i + 1);
++            triangle[2] = sourceIndex(i + 2);
++        }
++        else
++        {
++            triangle[0] = sourceIndex((t % 2 == 0) ? i : i + 1);
++            triangle[1] = sourceIndex((t % 2 == 0) ? i + 1 : i);
++            triangle[2] = sourceIndex(i + 2);
++        }
++
++        for (size_t v = 0; v < 3; v++)
++        {
++            if (uint32Indices)
++            {
++                static_cast<GLuint *>(mappedMemory)[t * 3 + v] = triangle[v];
++            }
++            else
++            {
++                static_cast<GLushort *>(mappedMemory)[t * 3 + v] =
++                    static_cast<GLushort>(triangle[v]);
++            }
++        }
++    }
++
++    ANGLE_TRY(mTriangleListIB->unmapBuffer(context));
++
++    if (mAppliedIBSerial != mTriangleListIB->getSerial())
++    {
++        mDevice->SetIndices(GetAs<IndexBuffer9>(mTriangleListIB->getIndexBuffer())->getBuffer());
++        mAppliedIBSerial = mTriangleListIB->getSerial();
++    }
++
++    *outStartIndex = offset / static_cast<unsigned int>(indexSize);
++    return angle::Result::Continue;
++}
++
++angle::Result Renderer9::drawTrianglesPerFacing(const gl::Context *context,
++                                                gl::PrimitiveMode mode,
++                                                GLsizei count,
++                                                gl::DrawElementsType type,
++                                                const void *indices,
++                                                int minIndex,
++                                                UINT vertexCount,
++                                                UINT startIndex)
++{
++    // ps_2_x has no VFACE: the pixel shader takes the facing of the triangles being drawn from
++    // dx_DepthFront.z (DynamicHLSL::generateShaderLinkHLSL), so a draw may only rasterize
++    // triangles of one facing, which the cull mode selects.
++    const gl::RasterizerState &rasterizer = context->getState().getRasterizerState();
++    bool indexed                          = (type != gl::DrawElementsType::InvalidEnum);
++
++    if (rasterizer.cullFace)
++    {
++        // Only one facing is rasterized anyway (FrontAndBack is skipped, see skipDraw()).
++        mStateManager.setFrontFacingPassConstant(
++            rasterizer.cullMode == gl::CullFaceMode::Back ? 1.0f : -1.0f);
++        if (indexed)
++        {
++            mDevice->DrawIndexedPrimitive(mPrimitiveType, -minIndex, minIndex, vertexCount,
++                                          startIndex, mPrimitiveCount);
++        }
++        else
++        {
++            mDevice->DrawPrimitive(mPrimitiveType, 0, mPrimitiveCount);
++        }
++        return angle::Result::Continue;
++    }
++
++    // Without culling both facings can be present and blending, depth and stencil make the
++    // result depend on the order of the triangles. Each triangle is therefore drawn on its own,
++    // in order, once culling back-facing and once culling front-facing triangles: exactly one of
++    // the two rasterizes it. Strips and fans become triangle lists so that every triangle keeps
++    // its winding (which also selects the two-sided stencil state) when drawn alone.
++    D3DPRIMITIVETYPE primitiveType = mPrimitiveType;
++    if (mode != gl::PrimitiveMode::Triangles)
++    {
++        ANGLE_TRY(applyTriangleListIndices(context, mode, count, type, indices, &startIndex));
++        primitiveType = D3DPT_TRIANGLELIST;
++        indexed       = true;
++        if (type == gl::DrawElementsType::InvalidEnum)
++        {
++            minIndex    = 0;
++            vertexCount = static_cast<UINT>(count);
++        }
++    }
++
++    const D3DCULL cullBackFacing =
++        gl_d3d9::ConvertCullMode(gl::CullFaceMode::Back, rasterizer.frontFace);
++    const D3DCULL cullFrontFacing =
++        gl_d3d9::ConvertCullMode(gl::CullFaceMode::Front, rasterizer.frontFace);
++
++    const UINT triangleCount = static_cast<UINT>(mPrimitiveCount);
++    for (UINT triangle = 0; triangle < triangleCount; triangle++)
++    {
++        for (const bool frontFacing : {true, false})
++        {
++            mDevice->SetRenderState(D3DRS_CULLMODE, frontFacing ? cullBackFacing : cullFrontFacing);
++            mStateManager.setFrontFacingPassConstant(frontFacing ? 1.0f : -1.0f);
++            if (indexed)
++            {
++                mDevice->DrawIndexedPrimitive(primitiveType, -minIndex, minIndex, vertexCount,
++                                              startIndex + triangle * 3, 1);
++            }
++            else
++            {
++                mDevice->DrawPrimitive(primitiveType, triangle * 3, 1);
++            }
++        }
++    }
++
++    // The next draw re-applies the cull mode.
++    mStateManager.forceSetRasterState();
++    return angle::Result::Continue;
++}
++
+ angle::Result Renderer9::applyShaders(const gl::Context *context, gl::PrimitiveMode drawMode)
+ {
+     const gl::State &state   = context->getState();
+@@ -2196,6 +2808,11 @@ void Renderer9::releaseDeviceResources()
+     SafeDelete(mIndexDataManager);
+     SafeDelete(mLineLoopIB);
+     SafeDelete(mCountingIB);
++    SafeRelease(mPointSpriteQuadVB);
++    mPointSpriteQuadVBSize = 0;
++    SafeRelease(mZeroPointSpriteCornerVB);
++    SafeDelete(mPointSpriteQuadIB);
++    SafeDelete(mTriangleListIB);
+ 
+     for (int i = 0; i < NUM_NULL_COLORBUFFER_CACHE_ENTRIES; i++)
+     {
+@@ -2689,9 +3306,18 @@ angle::Result Renderer9::compileToExecutable(d3d::Context *context,
+             ANGLE_HR_UNREACHABLE(context);
+     }
+ 
+-    profileStream << "_" << ((getMajorShaderModel() >= 3) ? 3 : 2);
+-    profileStream << "_"
+-                  << "0";
++    if (getMajorShaderModel() >= 3)
++    {
++        profileStream << "_3_0";
++    }
++    else if (type == gl::ShaderType::Fragment)
++    {
++        profileStream << "_" << GetShaderModel2PixelProfile(mDeviceCaps);
++    }
++    else
++    {
++        profileStream << "_2_0";
++    }
+ 
+     std::string profile = profileStream.str();
+ 
+@@ -3061,7 +3687,7 @@ void Renderer9::initializeFeatures(angle::FeaturesD3D *features) const
+ {
+     if (!mDisplay->getState().featuresAllDisabled)
+     {
+-        d3d9::InitializeFeatures(features);
++        d3d9::InitializeFeatures(features, mDeviceCaps);
+     }
+     ApplyFeatureOverrides(features, mDisplay->getState());
+ }
+@@ -3103,7 +3729,15 @@ angle::Result Renderer9::genericDrawElements(const gl::Context *context,
+ 
+     if (!skipDraw(state, mode))
+     {
+-        ANGLE_TRY(drawElementsImpl(context, mode, count, type, indices, instances));
++        if (InstancedPointSpritesActive(programD3D, mode))
++        {
++            ASSERT(instances == 0);
++            ANGLE_TRY(drawPointSpriteQuads(context, 0, count, type, indices));
++        }
++        else
++        {
++            ANGLE_TRY(drawElementsImpl(context, mode, count, type, indices, instances));
++        }
+     }
+ 
+     return angle::Result::Continue;
+@@ -3127,14 +3761,28 @@ angle::Result Renderer9::genericDrawArrays(const gl::Context *context,
+         return angle::Result::Continue;
+     }
+ 
++    const bool pointSpriteQuads = InstancedPointSpritesActive(programD3D, mode);
++
+     ANGLE_TRY(updateState(context, mode));
+-    ANGLE_TRY(applyVertexBuffer(context, mode, first, count, instances, nullptr));
++    if (!pointSpriteQuads)
++    {
++        ANGLE_TRY(applyVertexBuffer(context, mode, first, count, instances, nullptr));
++    }
+     ANGLE_TRY(applyTextures(context));
+     ANGLE_TRY(applyShaders(context, mode));
+ 
+     if (!skipDraw(context->getState(), mode))
+     {
+-        ANGLE_TRY(drawArraysImpl(context, mode, first, count, instances));
++        if (pointSpriteQuads)
++        {
++            ASSERT(instances == 0);
++            ANGLE_TRY(drawPointSpriteQuads(context, first, count, gl::DrawElementsType::InvalidEnum,
++                                           nullptr));
++        }
++        else
++        {
++            ANGLE_TRY(drawArraysImpl(context, mode, first, count, instances));
++        }
+     }
+ 
+     return angle::Result::Continue;
+diff --git a/src/libANGLE/renderer/d3d/d3d9/Renderer9.h b/src/libANGLE/renderer/d3d/d3d9/Renderer9.h
+index 67a20f56bac88646b2dca17b61e6aa7cd0d59e56..206338e0d7804dbbb3e72f6926c4afc997e7bbbd 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/Renderer9.h
++++ b/src/libANGLE/renderer/d3d/d3d9/Renderer9.h
+@@ -9,6 +9,8 @@
+ #ifndef LIBANGLE_RENDERER_D3D_D3D9_RENDERER9_H_
+ #define LIBANGLE_RENDERER_D3D_D3D9_RENDERER9_H_
+ 
++#include <map>
++
+ #include "common/angleutils.h"
+ #include "common/mathutil.h"
+ #include "libANGLE/renderer/d3d/HLSLCompiler.h"
+@@ -477,6 +479,36 @@ class Renderer9 : public RendererD3D
+                                 size_t count,
+                                 StaticIndexBufferInterface **outIB);
+ 
++    // Shader model 2 (see InitializeFeatures in renderer9_utils.cpp): draws every point of a
++    // GL_POINTS draw of a program that writes gl_PointSize as a quad.
++    angle::Result drawPointSpriteQuads(const gl::Context *context,
++                                       GLint first,
++                                       GLsizei count,
++                                       gl::DrawElementsType type,
++                                       const void *indices);
++    angle::Result getPointSpriteQuadIB(const gl::Context *context,
++                                       StaticIndexBufferInterface **outIB);
++    angle::Result getZeroPointSpriteCornerVB(const gl::Context *context,
++                                             IDirect3DVertexBuffer9 **outVB);
++
++    // Shader model 2 has no VFACE: triangles of a program that reads gl_FrontFacing are drawn
++    // with one facing at a time (see StateManager9::setFrontFacingPassConstant).
++    bool drawsFacingsSeparately(const ProgramD3D *programD3D, gl::PrimitiveMode mode) const;
++    angle::Result drawTrianglesPerFacing(const gl::Context *context,
++                                         gl::PrimitiveMode mode,
++                                         GLsizei count,
++                                         gl::DrawElementsType type,
++                                         const void *indices,
++                                         int minIndex,
++                                         UINT vertexCount,
++                                         UINT startIndex);
++    angle::Result applyTriangleListIndices(const gl::Context *context,
++                                           gl::PrimitiveMode mode,
++                                           GLsizei count,
++                                           gl::DrawElementsType type,
++                                           const void *indices,
++                                           UINT *outStartIndex);
++
+     angle::Result getNullColorRenderTarget(const gl::Context *context,
+                                            const RenderTarget9 *depthRenderTarget,
+                                            const RenderTarget9 **outColorRenderTarget);
+@@ -523,6 +555,11 @@ class Renderer9 : public RendererD3D
+     bool mDepthStencilInitialized;
+     bool mRenderTargetDescInitialized;
+ 
++    // Per depth-stencil D3DFORMAT seen by applyRenderTarget: the bits b of the depth difference
++    // 2^-b that format resolves on this device (d3d9::MeasureDepthBiasResolutionBits; 0 = could
++    // not be measured). Measured on first use, cleared with the device.
++    std::map<D3DFORMAT, unsigned int> mDepthBiasResolutionBits;
++
+     IDirect3DStateBlock9 *mMaskedClearSavedState;
+ 
+     StateManager9 mStateManager;
+@@ -560,6 +597,14 @@ class Renderer9 : public RendererD3D
+     StreamingIndexBufferInterface *mLineLoopIB;
+     StaticIndexBufferInterface *mCountingIB;
+ 
++    // Shader model 2 point sprite quads and per-facing triangle draws.
++    IDirect3DVertexBuffer9 *mPointSpriteQuadVB;
++    UINT mPointSpriteQuadVBSize;
++    IDirect3DVertexBuffer9 *mZeroPointSpriteCornerVB;
++    StaticIndexBufferInterface *mPointSpriteQuadIB;
++    StreamingIndexBufferInterface *mTriangleListIB;
++    std::vector<GLuint> mPointSpriteVertexIndices;
++
+     enum
+     {
+         NUM_NULL_COLORBUFFER_CACHE_ENTRIES = 12
+diff --git a/src/libANGLE/renderer/d3d/d3d9/StateManager9.cpp b/src/libANGLE/renderer/d3d/d3d9/StateManager9.cpp
+index cad011b25a8e14dd5f3aaf704f768335659c57e4..ac19160d0da17b866c9621a44e8111c86eb22b85 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/StateManager9.cpp
++++ b/src/libANGLE/renderer/d3d/d3d9/StateManager9.cpp
+@@ -481,6 +481,10 @@ void StateManager9::setViewportState(const gl::Rectangle &viewport,
+     pc.viewCoords[2] = actualViewport.x + (actualViewport.width * 0.5f);
+     pc.viewCoords[3] = actualViewport.y + (actualViewport.height * 0.5f);
+ 
++    // The vertex shader's dx_ViewCoords (c2.xy), used to size shader model 2 point sprite quads.
++    vc.viewCoords[0] = pc.viewCoords[0];
++    vc.viewCoords[1] = pc.viewCoords[1];
++
+     pc.depthFront[0] = (actualZFar - actualZNear) * 0.5f;
+     pc.depthFront[1] = (actualZNear + actualZFar) * 0.5f;
+     pc.depthFront[2] = depthFront;
+@@ -523,6 +527,15 @@ void StateManager9::setShaderConstants()
+ 
+ // This is separate from the main state loop because other functions
+ // outside call only setScissorState to update scissor state
++void StateManager9::setFrontFacingPassConstant(float frontFacingSign)
++{
++    // dx_DepthFront is pixel shader register c2 (dx_PixelConstants9::depthFront).
++    const float depthFront[4] = {mPixelConstants.depthFront[0], mPixelConstants.depthFront[1],
++                                 frontFacingSign, mPixelConstants.depthFront[3]};
++    mRenderer9->getDevice()->SetPixelShaderConstantF(2, depthFront, 1);
++    mDxUniformsDirty = true;
++}
++
+ void StateManager9::setScissorState(const gl::Rectangle &scissor, bool enabled)
+ {
+     if (mDirtyBits.test(DIRTY_BIT_SCISSOR_ENABLED))
+diff --git a/src/libANGLE/renderer/d3d/d3d9/StateManager9.h b/src/libANGLE/renderer/d3d/d3d9/StateManager9.h
+index b047b69cdde280aed79ac60ed8cba660188bcbd6..a5a49621d2cd88b170c869b78f542b78df57a30b 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/StateManager9.h
++++ b/src/libANGLE/renderer/d3d/d3d9/StateManager9.h
+@@ -52,6 +52,10 @@ class StateManager9 final : angle::NonCopyable
+                           bool ignoreViewport);
+ 
+     void setShaderConstants();
++    // Shader model 2 has no VFACE: while triangles of a program that reads gl_FrontFacing are
++    // drawn with only one facing at a time, the pixel shader's dx_DepthFront.z is +1 (front) or
++    // -1 (back). The regular value is restored by the next setShaderConstants().
++    void setFrontFacingPassConstant(float frontFacingSign);
+ 
+     void forceSetBlendState();
+     void forceSetRasterState();
+diff --git a/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.cpp b/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.cpp
+index e129ae978663f30fb20e413b2d16c7bdd410afea..36a9aa53d86273000bd193b8d4899f70bb59fdf2 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.cpp
++++ b/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.cpp
+@@ -51,7 +51,8 @@ angle::Result VertexDeclarationCache::applyDeclaration(
+     gl::Program *program,
+     GLint start,
+     GLsizei instances,
+-    GLsizei *repeatDraw)
++    GLsizei *repeatDraw,
++    IDirect3DVertexBuffer9 *zeroPointSpriteCorner)
+ {
+     ASSERT(gl::MAX_VERTEX_ATTRIBS >= attributes.size());
+ 
+@@ -104,7 +105,7 @@ angle::Result VertexDeclarationCache::applyDeclaration(
+     D3DCAPS9 caps;
+     device->GetDeviceCaps(&caps);
+ 
+-    D3DVERTEXELEMENT9 elements[gl::MAX_VERTEX_ATTRIBS + 1];
++    D3DVERTEXELEMENT9 elements[kMaxElements];
+     D3DVERTEXELEMENT9 *element = &elements[0];
+ 
+     ProgramD3D *programD3D      = GetImplAs<ProgramD3D>(program);
+@@ -198,14 +199,43 @@ angle::Result VertexDeclarationCache::applyDeclaration(
+         }
+     }
+ 
++    if (zeroPointSpriteCorner)
++    {
++        // Outside GL_POINTS draws the corner of a program that writes gl_PointSize on shader model
++        // 2 is 0 for every vertex (stride 0), which leaves its vertices where they are.
++        ASSERT(instances == 0);
++        const UINT stream = kPointSpriteCornerStream;
++        ASSERT(stream >= attributes.size() || !attributes[stream].active);
++        device->SetStreamSource(stream, zeroPointSpriteCorner, 0, 0);
++        mAppliedVBs[stream].serial = 0;
++
++        element->Stream     = static_cast<WORD>(stream);
++        element->Offset     = 0;
++        element->Type       = D3DDECLTYPE_FLOAT4;
++        element->Method     = D3DDECLMETHOD_DEFAULT;
++        element->Usage      = D3DDECLUSAGE_POSITION;
++        element->UsageIndex = 0;
++        element++;
++    }
++
+     static const D3DVERTEXELEMENT9 end = D3DDECL_END();
+     *(element++)                       = end;
+ 
++    return applyElements(context, device, elements, element - elements);
++}
++
++angle::Result VertexDeclarationCache::applyElements(const gl::Context *context,
++                                                    IDirect3DDevice9 *device,
++                                                    const D3DVERTEXELEMENT9 *elements,
++                                                    size_t elementCount)
++{
++    ASSERT(elementCount <= kMaxElements);
++
+     for (int i = 0; i < NUM_VERTEX_DECL_CACHE_ENTRIES; i++)
+     {
+         VertexDeclCacheEntry *entry = &mVertexDeclCache[i];
+-        if (memcmp(entry->cachedElements, elements,
+-                   (element - elements) * sizeof(D3DVERTEXELEMENT9)) == 0 &&
++        if (memcmp(entry->cachedElements, elements, elementCount * sizeof(D3DVERTEXELEMENT9)) ==
++                0 &&
+             entry->vertexDeclaration)
+         {
+             entry->lruCount = ++mMaxLru;
+@@ -236,7 +266,7 @@ angle::Result VertexDeclarationCache::applyDeclaration(
+         // about it.
+     }
+ 
+-    memcpy(lastCache->cachedElements, elements, (element - elements) * sizeof(D3DVERTEXELEMENT9));
++    memcpy(lastCache->cachedElements, elements, elementCount * sizeof(D3DVERTEXELEMENT9));
+     HRESULT result = device->CreateVertexDeclaration(elements, &lastCache->vertexDeclaration);
+     ANGLE_TRY_HR(GetImplAs<Context9>(context), result,
+                  "Failed to create internal vertex declaration");
+diff --git a/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h b/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h
+index 22e677d80045dc25963b304ff9a247181df616f4..c08d0dd417038690437147eed8159969eb39150c 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h
++++ b/src/libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h
+@@ -32,10 +32,30 @@ class VertexDeclarationCache
+                                    gl::Program *program,
+                                    GLint start,
+                                    GLsizei instances,
+-                                   GLsizei *repeatDraw);
++                                   GLsizei *repeatDraw,
++                                   IDirect3DVertexBuffer9 *zeroPointSpriteCorner);
++
++    // Applies a declaration whose streams the caller binds itself (shader model 2 point sprite
++    // quads, Renderer9::drawPointSpriteQuads); |elements| ends with D3DDECL_END().
++    angle::Result applyElements(const gl::Context *context,
++                                IDirect3DDevice9 *device,
++                                const D3DVERTEXELEMENT9 *elements,
++                                size_t elementCount);
+ 
+     void markStateDirty();
+ 
++    // The stream of the shader model 2 point sprite quad corner. Attribute location i uses stream
++    // i (no instancing on shader model 2) and shader model 2 advertises 15 vertex attributes
++    // (renderer9_utils.cpp: vs_2_x has 16 input registers, one is the corner), so the last stream
++    // is never an attribute's.
++    static constexpr UINT kPointSpriteCornerStream = gl::MAX_VERTEX_ATTRIBS - 1;
++
++    // Elements of a declaration: an attribute per stream, the shader model 2 point sprite quad corner
++    // (stream 15, which no attribute uses: SM2 exposes 15 attributes) and D3DDECL_END(). Sized for
++    // all MAX_VERTEX_ATTRIBS attributes plus the corner, so the arrays cannot overflow even if the
++    // attribute cap and the corner were ever combined.
++    static constexpr size_t kMaxElements = gl::MAX_VERTEX_ATTRIBS + 2;
++
+   private:
+     UINT mMaxLru;
+ 
+@@ -57,7 +77,7 @@ class VertexDeclarationCache
+ 
+     struct VertexDeclCacheEntry
+     {
+-        D3DVERTEXELEMENT9 cachedElements[gl::MAX_VERTEX_ATTRIBS + 1];
++        D3DVERTEXELEMENT9 cachedElements[kMaxElements];
+         UINT lruCount;
+         IDirect3DVertexDeclaration9 *vertexDeclaration;
+     } mVertexDeclCache[NUM_VERTEX_DECL_CACHE_ENTRIES];
+diff --git a/src/libANGLE/renderer/d3d/d3d9/formatutils9.cpp b/src/libANGLE/renderer/d3d/d3d9/formatutils9.cpp
+index c978389b6e3e8ed917dfddac4a080af7f8940757..56ca9df9e460d43d5ded07c36ba6cbac7da963b0 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/formatutils9.cpp
++++ b/src/libANGLE/renderer/d3d/d3d9/formatutils9.cpp
+@@ -9,6 +9,8 @@
+ 
+ #include "libANGLE/renderer/d3d/d3d9/formatutils9.h"
+ 
++#include <cmath>
++
+ #include "image_util/copyimage.h"
+ #include "image_util/generatemip.h"
+ #include "image_util/loadimage.h"
+@@ -692,5 +694,153 @@ const VertexFormat &GetVertexFormatInfo(DWORD supportedDeclTypes, angle::FormatI
+     return formatConverters[ComputeTypeIndex(vertexFormat.type)][vertexFormat.normalized]
+                            [vertexFormat.components - 1];
+ }
++
++unsigned int MeasureDepthBiasResolutionBits(IDirect3DDevice9 *device,
++                                            D3DFORMAT depthFormat,
++                                            unsigned int maxBits)
++{
++    // kColumns one-pixel-wide quads, column i at depth (i + 0.5) / kColumns: a first pass at its
++    // depth, a second pass at the same depth with D3DRS_DEPTHBIAS 2^-b. Where the second loses
++    // LESSEQUAL the first pass's colour stays: the bias is resolved there.
++    constexpr UINT kColumns         = 64;
++    constexpr UINT kRows            = 4;
++    constexpr D3DCOLOR kFirstColor  = D3DCOLOR_ARGB(255, 0, 255, 0);
++    constexpr D3DCOLOR kSecondColor = D3DCOLOR_ARGB(255, 0, 0, 255);
++    constexpr unsigned int kMinBits = 8;
++
++    // Single-sampled surfaces: the resolution does not depend on the sample count (D24S8/D24X8 at
++    // 1x/2x/4x resolve 2^-14 on Tegra 4 and 2^-24 on Adreno).
++    angle::ComPtr<IDirect3DSurface9> colorSurface;
++    angle::ComPtr<IDirect3DSurface9> depthSurface;
++    angle::ComPtr<IDirect3DTexture9> depthTexture;
++    angle::ComPtr<IDirect3DSurface9> readback;
++    if (FAILED(device->CreateRenderTarget(kColumns, kRows, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0,
++                                          FALSE, &colorSurface, nullptr)) ||
++        FAILED(device->CreateOffscreenPlainSurface(kColumns, kRows, D3DFMT_A8R8G8B8,
++                                                   D3DPOOL_SYSTEMMEM, &readback, nullptr)))
++    {
++        return 0;
++    }
++    // A depth-stencil surface, or, for formats ANGLE only creates as depth textures (INTZ), level 0
++    // of a D3DUSAGE_DEPTHSTENCIL texture -- the kind of surface the format is drawn into.
++    if (FAILED(device->CreateDepthStencilSurface(kColumns, kRows, depthFormat, D3DMULTISAMPLE_NONE,
++                                                 0, FALSE, &depthSurface, nullptr)) &&
++        (FAILED(device->CreateTexture(kColumns, kRows, 1, D3DUSAGE_DEPTHSTENCIL, depthFormat,
++                                      D3DPOOL_DEFAULT, &depthTexture, nullptr)) ||
++         FAILED(depthTexture->GetSurfaceLevel(0, &depthSurface))))
++    {
++        return 0;
++    }
++
++    angle::ComPtr<IDirect3DStateBlock9> savedState;
++    angle::ComPtr<IDirect3DSurface9> savedRenderTarget;
++    angle::ComPtr<IDirect3DSurface9> savedDepthStencil;
++    if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &savedState)))
++    {
++        return 0;
++    }
++    device->GetRenderTarget(0, &savedRenderTarget);
++    device->GetDepthStencilSurface(&savedDepthStencil);
++
++    struct Vertex
++    {
++        float x, y, z, rhw;
++        D3DCOLOR color;
++    };
++    Vertex vertices[kColumns * 6];
++
++    device->SetRenderTarget(0, colorSurface.Get());
++    device->SetDepthStencilSurface(depthSurface.Get());
++    const D3DVIEWPORT9 viewport = {0, 0, kColumns, kRows, 0.0f, 1.0f};
++    device->SetViewport(&viewport);
++    device->SetVertexShader(nullptr);
++    device->SetPixelShader(nullptr);
++    device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
++    device->SetTexture(0, nullptr);
++    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
++    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
++    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
++    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
++    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
++    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
++    device->SetRenderState(D3DRS_LIGHTING, FALSE);
++    device->SetRenderState(D3DRS_FOGENABLE, FALSE);
++    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
++    device->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
++    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
++    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
++    device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
++    device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
++    device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
++    device->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
++    device->SetRenderState(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALPHA |
++                                                       D3DCOLORWRITEENABLE_BLUE |
++                                                       D3DCOLORWRITEENABLE_GREEN |
++                                                       D3DCOLORWRITEENABLE_RED);
++    device->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
++    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
++    device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
++    device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, 0);
++
++    auto drawColumns = [&](D3DCOLOR color) {
++        for (UINT i = 0; i < kColumns; i++)
++        {
++            const float z     = (i + 0.5f) / kColumns;
++            const float x0    = i - 0.5f;
++            const float x1    = i + 0.5f;
++            const float y0    = -0.5f;
++            const float y1    = kRows - 0.5f;
++            Vertex *v         = &vertices[i * 6];
++            v[0]              = {x0, y0, z, 1.0f, color};
++            v[1]              = {x1, y0, z, 1.0f, color};
++            v[2]              = {x0, y1, z, 1.0f, color};
++            v[3]              = {x1, y0, z, 1.0f, color};
++            v[4]              = {x1, y1, z, 1.0f, color};
++            v[5]              = {x0, y1, z, 1.0f, color};
++        }
++        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, kColumns * 2, vertices, sizeof(Vertex));
++    };
++
++    unsigned int resolvedBits = 0;
++    for (unsigned int bits = maxBits; bits >= kMinBits && resolvedBits == 0; bits--)
++    {
++        const float bias = std::ldexp(1.0f, -static_cast<int>(bits));
++        device->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
++        if (FAILED(device->BeginScene()))
++        {
++            break;
++        }
++        device->SetRenderState(D3DRS_DEPTHBIAS, 0);
++        drawColumns(kFirstColor);
++        device->SetRenderState(D3DRS_DEPTHBIAS, gl::bitCast<DWORD>(bias));
++        drawColumns(kSecondColor);
++        device->SetRenderState(D3DRS_DEPTHBIAS, 0);
++        device->EndScene();
++
++        D3DLOCKED_RECT locked;
++        if (FAILED(device->GetRenderTargetData(colorSurface.Get(), readback.Get())) ||
++            FAILED(readback->LockRect(&locked, nullptr, D3DLOCK_READONLY)))
++        {
++            break;
++        }
++        const DWORD *row = reinterpret_cast<const DWORD *>(static_cast<const BYTE *>(locked.pBits) +
++                                                           locked.Pitch);
++        bool allResolved = true;
++        for (UINT i = 0; i < kColumns; i++)
++        {
++            allResolved = allResolved && row[i] == kFirstColor;
++        }
++        readback->UnlockRect();
++        if (allResolved)
++        {
++            resolvedBits = bits;
++        }
++    }
++
++    savedState->Apply();
++    device->SetRenderTarget(0, savedRenderTarget.Get());
++    device->SetDepthStencilSurface(savedDepthStencil.Get());
++    return resolvedBits;
++}
+ }  // namespace d3d9
+ }  // namespace rx
+diff --git a/src/libANGLE/renderer/d3d/d3d9/formatutils9.h b/src/libANGLE/renderer/d3d/d3d9/formatutils9.h
+index c3997ec0e974f1802e4185426f1f571277996623..c19aa6413a2d7c99e45bbb05b3b377c089335b23 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/formatutils9.h
++++ b/src/libANGLE/renderer/d3d/d3d9/formatutils9.h
+@@ -53,6 +53,17 @@ struct TextureFormat
+     LoadImageFunction loadFunction;
+ };
+ const TextureFormat &GetTextureFormatInfo(GLenum internalFormat);
++
++// GL polygon offset units are multiples of r, "the smallest value that is guaranteed to produce a
++// resolvable offset" for the depth buffer (OpenGL ES 2.0.25 section 3.5.2). Returns the largest
++// b <= maxBits for which a D3DRS_DEPTHBIAS of 2^-b separates two equal-depth primitives under
++// D3DCMP_LESSEQUAL at every one of a range of depths in a depthFormat surface on device, i.e.
++// r = 2^-b; 0 if it cannot be measured. Draws with the fixed-function pipeline into its own
++// surfaces and restores the device state it changes (a D3DSBT_ALL state block, render target 0,
++// depth-stencil surface). Must not be called inside a scene.
++unsigned int MeasureDepthBiasResolutionBits(IDirect3DDevice9 *device,
++                                            D3DFORMAT depthFormat,
++                                            unsigned int maxBits);
+ }  // namespace d3d9
+ }  // namespace rx
+ 
+diff --git a/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp b/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp
+index cb4b5ea2d25b0323a83568753ea01d93a67111b8..35f02e32339eda96b2bd742e50b36f235a6aa637 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp
++++ b/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp
+@@ -552,11 +552,13 @@ void GenerateCaps(IDirect3D9 *d3d9,
+     caps->maxViewportWidth  = caps->max2DTextureSize;
+     caps->maxViewportHeight = caps->maxViewportWidth;
+ 
+-    // Point size is clamped to 1.0f when the shader model is less than 3
++    // Shader model 3 draws points as hardware point sprites, limited by MaxPointSize. Shader model
++    // 2 draws them as quads (see InitializeFeatures), which have no hardware limit; like the D3D11
++    // quad emulation (renderer11_utils.cpp), the vertex shader clamps them to 1024.
+     caps->minAliasedPointSize = 1.0f;
+     caps->maxAliasedPointSize =
+         ((D3DSHADER_VERSION_MAJOR(deviceCaps.PixelShaderVersion) >= 3) ? deviceCaps.MaxPointSize
+-                                                                       : 1.0f);
++                                                                       : 1024.0f);
+ 
+     // Wide lines not supported
+     caps->minAliasedLineWidth = 1.0f;
+@@ -589,7 +591,10 @@ void GenerateCaps(IDirect3D9 *d3d9,
+     caps->maxServerWaitTimeout = 0;
+ 
+     // Vertex shader limits
+-    caps->maxVertexAttributes = 16;
++    // vs_2_x has 16 input registers, and on shader model 2 a program that writes gl_PointSize
++    // also reads the point sprite quad corner (DynamicHLSL::generateVertexShaderForInputLayout).
++    caps->maxVertexAttributes =
++        (D3DSHADER_VERSION_MAJOR(deviceCaps.PixelShaderVersion) >= 3) ? 16 : 15;
+     // Vertex Attrib Binding not supported.
+     caps->maxVertexAttribBindings = caps->maxVertexAttributes;
+ 
+@@ -602,10 +607,18 @@ void GenerateCaps(IDirect3D9 *d3d9,
+ 
+     // SM3 only supports 12 output variables, but the special 12th register is only for PSIZE.
+     const unsigned int MAX_VERTEX_OUTPUT_VECTORS_SM3 = 12 - GetReservedVaryingVectors();
+-    const unsigned int MAX_VERTEX_OUTPUT_VECTORS_SM2 = 10 - GetReservedVaryingVectors();
++    // SM2 (vs_2_x -> ps_2_x) passes every varying in TEXCOORD0-7 and none of the reservations
++    // above applies there: dx_Position is written to POSITION, gl_Position is not output
++    // (ProgramD3DMetadata::usesTransformFeedbackGLPosition) and points are drawn as quads (no
++    // PSIZE). gl_FragCoord and gl_PointCoord take one TEXCOORD each and gl_FrontFacing none;
++    // OpenGL ES counts exactly those built-ins against MAX_VARYING_VECTORS (GLSL ES 1.00
++    // section A.7). A program over the eight registers fails to link (shader compile error).
++    const unsigned int MAX_VERTEX_OUTPUT_VECTORS_SM2 = 8;
++    // Selected by the pixel shader version, like Renderer9::getMajorShaderModel() and the
++    // compile profiles.
+     caps->maxVertexOutputComponents =
+-        ((deviceCaps.VertexShaderVersion >= D3DVS_VERSION(3, 0)) ? MAX_VERTEX_OUTPUT_VECTORS_SM3
+-                                                                 : MAX_VERTEX_OUTPUT_VECTORS_SM2) *
++        ((deviceCaps.PixelShaderVersion >= D3DPS_VERSION(3, 0)) ? MAX_VERTEX_OUTPUT_VECTORS_SM3
++                                                               : MAX_VERTEX_OUTPUT_VECTORS_SM2) *
+         4;
+ 
+     // Only Direct3D 10 ready devices support all the necessary vertex texture formats.
+@@ -826,11 +839,16 @@ void MakeValidSize(bool isImage,
+     *levelOffset = upsampleCount;
+ }
+ 
+-void InitializeFeatures(angle::FeaturesD3D *features)
++void InitializeFeatures(angle::FeaturesD3D *features, const D3DCAPS9 &deviceCaps)
+ {
+     ANGLE_FEATURE_CONDITION(features, mrtPerfWorkaround, true);
+     ANGLE_FEATURE_CONDITION(features, setDataFasterThanImageUpload, false);
+-    ANGLE_FEATURE_CONDITION(features, useInstancedPointSpriteEmulation, false);
++    // Shader model 2 point sprites overwrite every TEXCOORD input of the pixel shader, which also
++    // carry the varyings, so points are drawn as quads there, like on D3D11 feature level 9_3
++    // (renderer11_utils.cpp). Without instancing (shader model 3 only), Renderer9 expands each
++    // point into the quad's four vertices (Renderer9::drawPointSpriteQuads).
++    ANGLE_FEATURE_CONDITION(features, useInstancedPointSpriteEmulation,
++                            deviceCaps.PixelShaderVersion < D3DPS_VERSION(3, 0));
+ 
+     // TODO(jmadill): Disable workaround when we have a fixed compiler DLL.
+     ANGLE_FEATURE_CONDITION(features, expandIntegerPowExpressions, true);
+diff --git a/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.h b/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.h
+index b900e9c44c095828d92db066572b718a97f1c2eb..b117ce96e6a94206c73b1a5b3878d5aedb8a2087 100644
+--- a/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.h
++++ b/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.h
+@@ -97,7 +97,7 @@ inline bool isDeviceLostError(HRESULT errorCode)
+     }
+ }
+ 
+-void InitializeFeatures(angle::FeaturesD3D *features);
++void InitializeFeatures(angle::FeaturesD3D *features, const D3DCAPS9 &deviceCaps);
+ }  // namespace d3d9
+ 
+ }  // namespace rx

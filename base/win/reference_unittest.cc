@@ -19,9 +19,12 @@ template <>
 struct __declspec(uuid("3c00fd60-2950-5939-a21a-2d12c5a01b8a")) IReference<bool>
     : IReference_impl<Internal::AggregateType<bool, boolean>> {};
 
+// Already declared (same IID) by headers that still ship it, e.g. mingw-w64's.
+#if !defined(____FIReference_1_INT32_INTERFACE_DEFINED__)
 template <>
 struct __declspec(uuid("548cefbd-bc8a-5fa0-8df2-957440fc8bf4")) IReference<int>
     : IReference_impl<int> {};
+#endif
 }  // namespace Foundation
 }  // namespace Windows
 }  // namespace ABI

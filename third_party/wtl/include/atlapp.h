@@ -31,7 +31,14 @@
 	#error WTL requires that _ATL_NO_WIN_SUPPORT is not defined
 #endif
 
-#if (_MSC_VER < 1400)
+// win-arm32 (llvm-mingw -gnu): clang does NOT define _MSC_VER (it needs -fms-compatibility,
+// unusable on the -gnu target; a global -D_MSC_VER flips Chromium's pinned libc++ to the MS
+// ABI and is catastrophic — see toolchains/win_mingw_fixes/wrl/def.h). This MSVC-version gate
+// is a proxy for "modern C++ compiler"; clang 16 (C++20) qualifies. Exempt clang so the gate
+// only rejects genuinely-old MSVC. WTL's other _MSC_VER uses are safe under clang: line 155
+// is satisfied via __cplusplus>=201103L, and the `_MSC_VER == 1400` (VS2005) checks are
+// correctly false. This is the only WTL gate that blocks the -gnu toolchain.
+#if (_MSC_VER < 1400) && !defined(__clang__)
 	#error WTL10 requires C++ compiler version 14 (Visual C++ 2005) or higher
 #endif
 

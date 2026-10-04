@@ -281,7 +281,8 @@ void ProcessSnapshotWin::InitializeUnloadedModules() {
     return;
   }
   using Traits = process_types::internal::Traits64;
-#elif defined(ARCH_CPU_X86)
+#elif defined(ARCH_CPU_X86) || defined(ARCH_CPU_ARMEL)
+  // win-arm32 (ARCH_CPU_ARMEL) is a 32-bit target, like x86: use the 32-bit Traits.
   using Traits = process_types::internal::Traits32;
 #else
 #error port

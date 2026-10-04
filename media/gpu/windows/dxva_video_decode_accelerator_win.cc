@@ -927,7 +927,7 @@ bool DXVAVideoDecodeAccelerator::CreateVideoProcessor() {
   inputDesc.SampleFormat.VideoPrimaries = DXVA2_VideoPrimaries_BT709;
   inputDesc.SampleFormat.VideoTransferFunction = DXVA2_VideoTransFunc_709;
   inputDesc.SampleFormat.SampleFormat = DXVA2_SampleProgressiveFrame;
-  inputDesc.Format = (D3DFORMAT)MAKEFOURCC('N', 'V', '1', '2');
+  inputDesc.Format = d3d9_output_format_;
   inputDesc.InputSampleFreq.Numerator = 30;
   inputDesc.InputSampleFreq.Denominator = 1;
   inputDesc.OutputFrameFreq.Numerator = 30;
@@ -1685,9 +1685,37 @@ bool DXVAVideoDecodeAccelerator::CheckDecoderDxvaSupport() {
 bool DXVAVideoDecodeAccelerator::SetDecoderMediaTypes() {
   RETURN_ON_FAILURE(SetDecoderInputMediaType(),
                     "Failed to set decoder input media type", false);
-  return SetDecoderOutputMediaType(MFVideoFormat_NV12) ||
-         SetDecoderOutputMediaType(MFVideoFormat_P010) ||
-         SetDecoderOutputMediaType(MFVideoFormat_P016);
+  return SetDecoderOutputMediaTypes();
+}
+
+bool DXVAVideoDecodeAccelerator::SetDecoderOutputMediaTypes() {
+  if (SetDecoderOutputMediaType(MFVideoFormat_NV12) ||
+      SetDecoderOutputMediaType(MFVideoFormat_P010) ||
+      SetDecoderOutputMediaType(MFVideoFormat_P016)) {
+    return true;
+  }
+  // With a Direct3D 9 device manager the decoder renders to whatever surface
+  // format the driver's DXVA2 decoder supports, and the Microsoft H.264 MFT
+  // then offers that format as its only output type, which can be YV12. The
+  // D3D9 path converts decoded surfaces to RGB with the DXVA2 video processor
+  // or StretchRect (CopySurface), which accept any YUV format the driver can
+  // convert, so YV12 is usable there when the driver converts it to RGB.
+  if (use_dx11_)
+    return false;
+  const D3DFORMAT yv12 = static_cast<D3DFORMAT>(MAKEFOURCC('Y', 'V', '1', '2'));
+  if (FAILED(d3d9_->CheckDeviceFormatConversion(
+          D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, yv12, D3DFMT_X8R8G8B8)) ||
+      !SetDecoderOutputMediaType(MFVideoFormat_YV12)) {
+    return false;
+  }
+  if (d3d9_output_format_ != yv12) {
+    // The DXVA2 video processor is created for the decoder's output format.
+    d3d9_output_format_ = yv12;
+    processor_.Reset();
+    video_processor_service_.Reset();
+    CreateVideoProcessor();
+  }
+  return true;
 }
 
 bool DXVAVideoDecodeAccelerator::SetDecoderInputMediaType() {
@@ -1847,9 +1875,7 @@ void DXVAVideoDecodeAccelerator::DoDecode(const gfx::Rect& visible_rect,
       // A stream change needs further ProcessInput calls to get back decoder
       // output which is why we need to set the state to stopped.
       if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
-        if (!SetDecoderOutputMediaType(MFVideoFormat_NV12) &&
-            !SetDecoderOutputMediaType(MFVideoFormat_P010) &&
-            !SetDecoderOutputMediaType(MFVideoFormat_P016)) {
+        if (!SetDecoderOutputMediaTypes()) {
           // Decoder didn't let us set NV12 output format. Not sure as to why
           // this can happen. Give up in disgust.
           NOTREACHED() << "Failed to set decoder output media type to NV12";

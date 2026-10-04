@@ -30,11 +30,14 @@ class CheckTraceVisitor : public clang::RecursiveASTVisitor<CheckTraceVisitor> {
   bool IsTraceCallName(const std::string& name);
 
   clang::CXXRecordDecl* GetDependentTemplatedDecl(
-      clang::CXXDependentScopeMemberExpr* expr);
+      clang::NestedNameSpecifier qual);
 
   void CheckCXXDependentScopeMemberExpr(
       clang::CallExpr* call,
       clang::CXXDependentScopeMemberExpr* expr);
+  void CheckDependentScopeCall(clang::CallExpr* call,
+                               const std::string& fn_name,
+                               clang::NestedNameSpecifier qual);
   bool CheckTraceBaseCall(clang::CallExpr* call);
   bool CheckTraceFieldMemberCall(clang::CXXMemberCallExpr* call);
   bool CheckTraceFieldCall(const std::string& name,

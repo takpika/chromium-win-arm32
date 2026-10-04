@@ -244,6 +244,12 @@ component("capture_lib") {
     ]
     deps += [ "//media/base/win:media_foundation_util" ]
     libs = [
+      # win-arm32: PROPSETID_VIDCAP_VIDEOPROCAMP (odr-used by
+      # video_capture_device_win.cc) lives in MSVC's ksuser.lib; mingw declares it
+      # in <ksmedia.h> but its storage is in libksuser.a, not otherwise linked.
+      # (KSNODETYPE_VIDEO_* are absent from every mingw lib and are supplied with
+      # storage by the toolchains/win_mingw_fixes/ksmedia.h supplement instead.)
+      "ksuser.lib",
       "mf.lib",
       "mfplat.lib",
       "mfreadwrite.lib",

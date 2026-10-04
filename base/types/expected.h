@@ -938,12 +938,27 @@ constexpr bool operator==(const expected<T, E, IsVoid>& x,
          (x.has_value() ? equal_values(x, y) : x.error() == y.error());
 }
 
-template <typename T, typename E, typename U, internal::EnableIfNotVoid<T> = 0>
+// Architecture/toolchain-INDEPENDENT standard ambiguity (reproduces on stock upstream with any
+// conforming compiler): the heterogeneous `operator==(const expected<T,E>&, const U&)` (and its
+// reverse) matches `expected<T,E> == expected<T,E>` with U = expected<T,E>, competing with the
+// homogeneous `operator==(expected, expected)` above. Partial ordering CANNOT pick the
+// homogeneous one as more specialized because the homogeneous parameter uses the default third
+// template argument `IsVoid = std::is_void_v<T>` (see expected_internal.h), which is a
+// non-deduced context during ordering, so deduction fails both directions and the set is
+// ambiguous. The heterogeneous overloads are meant only for comparing an expected against a
+// NON-expected value, so constraining U with !IsExpected<U> is the correct fix and leaves the
+// homogeneous overload as the sole match for expected-vs-expected. (This build's stricter clang
+// merely surfaces it; it is not clang-version- or arch-specific.)
+template <typename T, typename E, typename U,
+          std::enable_if_t<!std::is_void_v<T> && !internal::IsExpected<U>::value,
+                           int> = 0>
 constexpr bool operator==(const expected<T, E>& x, const U& v) noexcept {
   return x.has_value() && x.value() == v;
 }
 
-template <typename T, typename E, typename U, internal::EnableIfNotVoid<T> = 0>
+template <typename T, typename E, typename U,
+          std::enable_if_t<!std::is_void_v<T> && !internal::IsExpected<U>::value,
+                           int> = 0>
 constexpr bool operator==(const U& v, const expected<T, E>& x) noexcept {
   return x == v;
 }
@@ -976,12 +991,16 @@ constexpr bool operator!=(const expected<T, E, IsVoid>& x,
   return !(x == y);
 }
 
-template <typename T, typename E, typename U, internal::EnableIfNotVoid<T> = 0>
+template <typename T, typename E, typename U,
+          std::enable_if_t<!std::is_void_v<T> && !internal::IsExpected<U>::value,
+                           int> = 0>
 constexpr bool operator!=(const expected<T, E>& x, const U& v) noexcept {
   return !(x == v);
 }
 
-template <typename T, typename E, typename U, internal::EnableIfNotVoid<T> = 0>
+template <typename T, typename E, typename U,
+          std::enable_if_t<!std::is_void_v<T> && !internal::IsExpected<U>::value,
+                           int> = 0>
 constexpr bool operator!=(const U& v, const expected<T, E>& x) noexcept {
   return !(v == x);
 }

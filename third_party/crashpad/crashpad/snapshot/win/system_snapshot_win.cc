@@ -220,6 +220,8 @@ CPUArchitecture SystemSnapshotWin::GetCPUArchitecture() const {
                                     : kCPUArchitectureX86;
 #elif defined(ARCH_CPU_ARM64)
   return kCPUArchitectureARM64;
+#elif defined(ARCH_CPU_ARMEL)
+  return kCPUArchitectureARM;
 #else
 #error Unsupported Windows Arch
 #endif
@@ -246,7 +248,8 @@ uint32_t SystemSnapshotWin::CPURevision() const {
   uint16_t adjusted_family = family + extended_family;
   uint8_t adjusted_model = model + (extended_model << 4);
   return (adjusted_family << 16) | (adjusted_model << 8) | stepping;
-#elif defined(ARCH_CPU_ARM64)
+#elif defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_ARMEL)
+  // win-arm32 shares the ARM64 path: wProcessorRevision from GetSystemInfo is arch-neutral.
   SYSTEM_INFO system_info;
   GetSystemInfo(&system_info);
 
@@ -279,7 +282,8 @@ std::string SystemSnapshotWin::CPUVendor() const {
   *reinterpret_cast<int*>(vendor + 4) = cpu_info[3];
   *reinterpret_cast<int*>(vendor + 8) = cpu_info[2];
   return std::string(vendor, sizeof(vendor));
-#elif defined(ARCH_CPU_ARM64)
+#elif defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_ARMEL)
+  // win-arm32 shares the ARM64 path: the CPU-identifier registry read is arch-neutral.
   HKEY key;
 
   if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,

@@ -53,7 +53,13 @@ source_set("libc++abi") {
     sources += [ "trunk/src/cxa_demangle.cpp" ]
   }
 
-  if (is_fuchsia || (is_posix && !is_apple)) {
+  # Windows on ARM32 uses libc++abi (see //buildtools/third_party/libc++) with
+  # the Microsoft C runtime, which has no __cxa_thread_atexit (MinGW's C
+  # runtime does, which is why LLVM does not build this file for MinGW); the
+  # file's fallback keeps the destructors in a libc++ TLS key, which on Windows
+  # is a fiber-local slot whose callback runs them at thread exit.
+  if (is_fuchsia || (is_posix && !is_apple) ||
+      (is_win && target_cpu == "arm")) {
     sources += [ "trunk/src/cxa_thread_atexit.cpp" ]
   }
 

@@ -1,0 +1,13 @@
+diff --git a/Eigen/Core b/Eigen/Core
+index 48c2121891288414baae9ee5d2a254dc71db82c1..962de22a1c53cfb8bcaccb01d35c18f820145ba3 100644
+--- a/Eigen/Core
++++ b/Eigen/Core
+@@ -36,7 +36,7 @@
+ 
+ // Disable the ipa-cp-clone optimization flag with MinGW 6.x or newer (enabled by default with -O3)
+ // See http://eigen.tuxfamily.org/bz/show_bug.cgi?id=556 for details.
+-#if EIGEN_COMP_MINGW && EIGEN_GNUC_AT_MOST(5,5)
++#if EIGEN_COMP_MINGW && !EIGEN_COMP_CLANG && EIGEN_GNUC_AT_MOST(5,5)
+   #pragma GCC optimize ("-fno-ipa-cp-clone")
+ #endif
+ 

@@ -108,6 +108,35 @@ template("msvc_toolchain") {
 
     env = invoker.environment
 
+    if (defined(invoker.rc_preprocessor)) {
+      # rc.py preprocesses .rc files with this clang-cl.
+      rc_preprocessor = "--clang-cl=${invoker.rc_preprocessor} "
+    } else {
+      rc_preprocessor = ""
+    }
+
+    # Entry-point selection for toolchains whose linker cannot infer it:
+    # dll_startup is added to DLL links; exe_link_wrapper prefixes EXE links
+    # (it adds the /ENTRY that matches the image's entry function).
+    if (defined(invoker.dll_startup)) {
+      dll_startup = "${invoker.dll_startup} "
+    } else {
+      dll_startup = ""
+    }
+    if (defined(invoker.exe_link_wrapper)) {
+      exe_link_wrapper = "${invoker.exe_link_wrapper} "
+    } else {
+      exe_link_wrapper = ""
+    }
+
+    # Link inputs that come after the image's own objects, libraries and
+    # ldflags (the position a compiler driver gives the C runtime libraries).
+    if (defined(invoker.sys_link_inputs)) {
+      sys_link_inputs = " ${invoker.sys_link_inputs}"
+    } else {
+      sys_link_inputs = ""
+    }
+
     if (use_lld) {
       # lld-link includes a replacement for lib.exe that can produce thin
       # archives and understands bitcode (for lto builds).
@@ -134,11 +163,17 @@ template("msvc_toolchain") {
       env_wrapper = ""
       sys_include_flags =
           "${invoker.sys_include_flags} "  # Note trailing space.
+      if (defined(invoker.rc_sys_include_flags)) {
+        rc_sys_include_flags = "${invoker.rc_sys_include_flags} "
+      } else {
+        rc_sys_include_flags = sys_include_flags
+      }
     } else {
       # clang-cl doesn't need this env hoop, so omit it there.
       assert(!toolchain_is_clang)
       env_wrapper = "ninja -t msvc -e $env -- "  # Note trailing space.
       sys_include_flags = ""
+      rc_sys_include_flags = ""
     }
 
     if (host_os != "win" || (use_lld && defined(invoker.sys_lib_flags))) {
@@ -230,7 +265,7 @@ template("msvc_toolchain") {
     }
 
     tool("rc") {
-      command = "$python_path $_tool_wrapper_path rc-wrapper $env rc.exe /nologo $sys_include_flags{{defines}} {{include_dirs}} /fo{{output}} {{source}}"
+      command = "$python_path $_tool_wrapper_path rc-wrapper $env rc.exe /nologo $rc_preprocessor$rc_sys_include_flags{{defines}} {{include_dirs}} /fo{{output}} {{source}}"
       depsformat = "msvc"
       outputs = [ "$object_subdir/{{source_name_part}}.res" ]
       description = "RC {{output}}"
@@ -253,6 +288,21 @@ template("msvc_toolchain") {
           # building V8 for Windows on Arm systems with the MSVC toolchain.
           ml = "armasm64.exe"
         }
+      } else if (toolchain_args.current_cpu == "arm") {
+        # win-arm32 assembles GNU-dialect (GAS) .S sources — dav1d
+        # (src/arm/32/*.S), libvpx (*.asm.S), and crashpad's
+        # capture_context_win_arm.S — via the plain llvm-mingw clang driver, NOT
+        # clang-cl (whose C/C++ defaults do not apply to a .S). The
+        # x86/x64 MASM capture_context_win.asm / safe_terminate_process.asm are
+        # EXCLUDED for arm32 in third_party/crashpad/.../util/BUILD.gn (they are
+        # not routed here). The explicit --target pins the output ABI in the
+        # toolchain itself, mirroring the arm64 branch above.
+        # -MMD writes the header dependencies (e.g. the asm.S macro files the
+        # sources #include) so ninja rebuilds when they change; see depfile below.
+        ml = "${cl_prefix}${_clang_bin_path}/clang${_exe} " +
+             "--target=armv7-w64-windows-gnu -c " +
+             "-o{{output}} -MMD -MF {{output}}.d"
+        is_msvc_assembler = false
       } else {
         if (toolchain_is_clang && !disable_llvm_ml) {
           prefix = rebase_path("$clang_base_path/bin", root_build_dir)
@@ -299,6 +349,10 @@ template("msvc_toolchain") {
 
       description = "ASM {{output}}"
       outputs = [ "$object_subdir/{{source_name_part}}.obj" ]
+      if (toolchain_args.current_cpu == "arm") {
+        depfile = "{{output}}.d"
+        depsformat = "gcc"
+      }
     }
 
     if (toolchain_has_rust) {
@@ -398,7 +452,7 @@ template("msvc_toolchain") {
       rspfile = "${dllname}.rsp"
       pool = "//build/toolchain:link_pool($default_toolchain)"
 
-      command = "$linker_wrapper$link /OUT:$dllname /nologo ${sys_lib_flags}/IMPLIB:$libname /DLL /PDB:$pdbname @$rspfile"
+      command = "$linker_wrapper$link /OUT:$dllname /nologo ${sys_lib_flags}${dll_startup}/IMPLIB:$libname /DLL /PDB:$pdbname @$rspfile$sys_link_inputs"
 
       default_output_extension = ".dll"
       default_output_dir = "{{root_out_dir}}"
@@ -433,7 +487,7 @@ template("msvc_toolchain") {
       rspfile = "${dllname}.rsp"
       pool = "//build/toolchain:link_pool($default_toolchain)"
 
-      command = "$linker_wrapper$link /OUT:$dllname /nologo ${sys_lib_flags}/DLL /PDB:$pdbname @$rspfile"
+      command = "$linker_wrapper$link /OUT:$dllname /nologo ${sys_lib_flags}${dll_startup}/DLL /PDB:$pdbname @$rspfile$sys_link_inputs"
 
       default_output_extension = ".dll"
       default_output_dir = "{{root_out_dir}}"
@@ -456,7 +510,7 @@ template("msvc_toolchain") {
       rspfile = "$exename.rsp"
       pool = "//build/toolchain:link_pool($default_toolchain)"
 
-      command = "$linker_wrapper$link /OUT:$exename /nologo ${sys_lib_flags} /PDB:$pdbname @$rspfile"
+      command = "$exe_link_wrapper$linker_wrapper$link /OUT:$exename /nologo ${sys_lib_flags} /PDB:$pdbname @$rspfile$sys_link_inputs"
 
       default_output_extension = ".exe"
       default_output_dir = "{{root_out_dir}}"
@@ -550,6 +604,26 @@ template("win_toolchains") {
     }
 
     sys_include_flags = "${win_toolchain_data.include_flags_imsvc}"
+    if (target_cpu == "arm") {
+      # Windows on ARM32 (and its x64 helper toolchain): llvm-mingw. The
+      # compiler's header search order is set in build/config/win/BUILD.gn
+      # (the Windows SDK after llvm-mingw's headers), so no /winsysroot here.
+      # .rc files are preprocessed by rc.py with the build's own clang-cl in
+      # MSVC mode (rc.py's default, third_party/llvm-build, is the upstream
+      # toolchain package, which this build does not use; it exists only for
+      # x64 hosts), with the Windows SDK as its system headers.
+      sys_include_flags = ""
+      rc_preprocessor = "${_clang_bin_path}/clang-cl${_exe}"
+      rc_sys_include_flags = ""
+      foreach(dir,
+              [
+                "um",
+                "shared",
+                "winrt",
+              ]) {
+        rc_sys_include_flags += " -imsvc$win_sdk_splat_dir/sdk/include/$dir"
+      }
+    }
     if (use_lld) {
       sys_lib_flags =
           "-libpath:$_clang_lib_dir ${win_toolchain_data.libpath_lldlink_flags}"
@@ -559,13 +633,75 @@ template("win_toolchains") {
                  toolchain_arch == "arm" || toolchain_arch == "arm64",
              "Only supports x64, x86, arm and arm64 CPUs")
       if (toolchain_arch == "x64") {
-        sys_lib_flags += " /MACHINE:X64"
+        _machine = "/MACHINE:X64"
       } else if (toolchain_arch == "x86") {
-        sys_lib_flags += " /MACHINE:X86"
+        _machine = "/MACHINE:X86"
       } else if (toolchain_arch == "arm") {
-        sys_lib_flags += " /MACHINE:ARM"
+        _machine = "/MACHINE:ARM"
       } else if (toolchain_arch == "arm64") {
-        sys_lib_flags += " /MACHINE:ARM64"
+        _machine = "/MACHINE:ARM64"
+      }
+      sys_lib_flags += " $_machine"
+
+      if (target_cpu == "arm") {
+        # Windows on ARM32 (and its x64 helper toolchain): objects from
+        # llvm-mingw's clang (*-w64-windows-gnu) linked against Microsoft's
+        # static CRT (libcmt, libvcruntime, libucrt: what /MT gives upstream).
+        # The C++ standard library and ABI runtime are Chromium's libc++ and
+        # libc++abi (GN targets); the unwinder under libc++abi, the
+        # stack-protector runtime, __dso_handle (libdso_handle.a: the
+        # per-image handle of Itanium-ABI thread_local destructors, which
+        # MinGW's CRT and ELF's crtbegin supply), and the CRT symbol aliases
+        # of mingw-w64's UCRT import library that a Microsoft CRT lacks
+        # (crt_aliases.obj), and the functions the Windows SDK defines only
+        # inline in its headers (libsdk_inlines.a: frexpf, gai_strerrorA, ...)
+        # are
+        # built for this CRT by
+        # toolchains/win_mingw_fixes/build_winrt_crt_runtimes.sh.
+        # /lldmingw: required for GCC-style objects -- lld associates their
+        # .pdata$<fn>/.xdata$<fn> unwind sections with <fn> only in MinGW mode
+        # (lld/COFF/InputFiles.cpp maybeAssociateSEHForMingw); without it they
+        # are discarded and C++ exceptions cannot unwind.
+        # /auto-import:no /runtime-pseudo-reloc:no: those MinGW-mode features
+        # need MinGW's startup code (its pseudo-relocation runtime), which this
+        # CRT does not have; a data import without dllimport fails to link
+        # instead.
+        # -exclude-all-symbols: a DLL exports what it declares, as with
+        # link.exe (MinGW mode would otherwise export every symbol of a DLL
+        # that declares none).
+        # /NODEFAULTLIB:libcpmt*: config("static_crt") names MSVC's C++
+        # library, which is for the MSVC C++ ABI; this build's C++ library is
+        # Chromium's libc++ and libc++abi.
+        # Entry points: MinGW mode chooses the entry by subsystem only
+        # (main/WinMain); the Microsoft CRT has one startup object per entry
+        # function, so executables get /ENTRY for the entry function the image
+        # defines (mingw_exe_entry.py) and DLLs /ENTRY:_DllMainCRTStartup.
+        if (toolchain_arch == "arm") {
+          _rt_arch = "arm"
+        } else {
+          _rt_arch = "x86_64"
+        }
+        sys_lib_flags =
+            "/lldmingw -exclude-all-symbols /auto-import:no " +
+            "/runtime-pseudo-reloc:no /NODEFAULTLIB:libcpmt.lib " +
+            "/NODEFAULTLIB:libcpmtd.lib " +
+            "-libpath:$win_crt_runtimes_dir/$toolchain_arch " +
+            "-libpath:$win_sdk_splat_dir/crt/lib/$toolchain_arch " +
+            "-libpath:$win_sdk_splat_dir/sdk/lib/ucrt/$toolchain_arch " +
+            "-libpath:$win_sdk_splat_dir/sdk/lib/um/$toolchain_arch " +
+            "-libpath:$_clang_lib_dir $_machine"
+        # After the image's own objects and libraries (@rsp), as a compiler
+        # driver places the runtime libraries.
+        sys_link_inputs =
+            "crt_aliases.obj libunwind.a libssp_crt.a libdso_handle.a " +
+            "libsdk_inlines.a " +
+            "libclang_rt.builtins-$_rt_arch.a libcmt.lib libvcruntime.lib " +
+            "libucrt.lib legacy_stdio_definitions.lib kernel32.lib"
+        dll_startup = "/ENTRY:_DllMainCRTStartup"
+        exe_link_wrapper =
+            "$python_path " +
+            rebase_path("//build/toolchain/win/mingw_exe_entry.py",
+                        root_build_dir) + " ${_clang_bin_path}/llvm-nm$_exe --"
       }
     }
 

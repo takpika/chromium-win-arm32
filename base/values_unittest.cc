@@ -40,7 +40,7 @@ namespace base {
 // This test is limited to NDEBUG builds, since some containers may require
 // extra storage for supporting debug checks for things like iterators.
 TEST(ValuesTest, SizeOfValue) {
-#if BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_WIN) && !HAS_CPP_ATTRIBUTE(no_unique_address)
   // On Windows, clang-cl does not support `[[no_unique_address]]` (see
   // https://github.com/llvm/llvm-project/issues/49358). `base::Value::Dict` has
   // a `base::flat_tree` which relies on this attribute to avoid wasting space
@@ -56,7 +56,7 @@ TEST(ValuesTest, SizeOfValue) {
   // libc++'s std::string and std::vector both take 3 machine words. An
   // additional word is used by absl::variant for the type index.
   constexpr size_t kExpectedSize = 4 * sizeof(void*);
-#endif  // BUILDFLAG(IS_WIN)
+#endif  // BUILDFLAG(IS_WIN) && !HAS_CPP_ATTRIBUTE(no_unique_address)
 
   // Use std::integral_constant so the compiler error message includes the
   // evaluated size. In future versions of clang, it should be possible to

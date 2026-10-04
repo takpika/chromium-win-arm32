@@ -35,6 +35,12 @@ config("internal_config") {
     "BORINGSSL_NO_STATIC_INITIALIZER",
     "OPENSSL_SMALL",
   ]
+  if (is_win && target_cpu == "arm") {
+    # Windows on ARM32 compiles with llvm-mingw's clang (__MINGW32__) but links
+    # Microsoft's C runtime, not MinGW's winpthreads: use the Windows threads
+    # (crypto/thread_win.c), as the MSVC-built Windows targets do.
+    defines += [ "OPENSSL_WINDOWS_CRT_THREADS" ]
+  }
 }
 
 config("no_asm_config") {
@@ -47,7 +53,7 @@ all_headers = crypto_headers + ssl_headers
 
 # Windows' assembly is built with NASM. The other platforms use the platform
 # assembler. Exclude Windows ARM64 because NASM targets x86 and x64 only.
-if (is_win && !is_msan && current_cpu != "arm64") {
+if (is_win && !is_msan && current_cpu != "arm64" && current_cpu != "arm") {
   import("//third_party/nasm/nasm_assemble.gni")
   nasm_assemble("boringssl_asm") {
     if (current_cpu == "x64") {
@@ -88,6 +94,20 @@ if (is_win && !is_msan && current_cpu != "arm64") {
         sources += crypto_sources_linux_arm
       } else if (is_apple) {
         sources += crypto_sources_apple_arm
+      } else if (is_win) {
+        # Windows on ARM32 (Surface RT/Pro X, WoW64) is Thumb-2 only. The win-arm
+        # asm (win32 arm-xlate flavour) needs the assembler to wrap the perlasm's
+        # ARM-mode predicated instructions in Thumb-2 IT blocks; -mfpu=neon is
+        # already supplied by the default //build/config/compiler:compiler_arm_fpu
+        # (arm_version=7, arm_use_neon), and the ARMv8 crypto ops are .byte-encoded
+        # (re-encoded to their Thumb-2 form), so the only asmflag needed here is the
+        # implicit-IT one. Runtime dispatch is via cpu_arm_win.c (in
+        # crypto_sources, OPENSSL_cpuid_setup): NEON + crypto-ext are gated by
+        # IsProcessorFeaturePresent, so crypto-ext code never runs on a non-crypto
+        # ARMv7 (Tegra) part. Device-KAT verified on Surface Pro X and Surface RT
+        # (through-API AES dispatch + armcap read-back).
+        sources += crypto_sources_win_arm
+        asmflags += [ "-Wa,-mimplicit-it=always" ]
       } else {
         public_configs = [ ":no_asm_config" ]
       }

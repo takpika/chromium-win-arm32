@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <limits>
+#include <new>
 
 #include "base/allocator/partition_allocator/partition_alloc_base/bits.h"
 #include "base/allocator/partition_allocator/partition_alloc_base/numerics/safe_conversions.h"
@@ -72,6 +73,7 @@ bool WinCallNewHandler(size_t size) {
 #ifdef _CPPUNWIND
 #error "Exceptions in allocator shim are not supported!"
 #endif  // _CPPUNWIND
+#if defined(_LIBCPP_ABI_VCRUNTIME)
   // Get the current new handler.
   _PNH nh = _query_new_handler();
   if (!nh)
@@ -79,6 +81,16 @@ bool WinCallNewHandler(size_t size) {
   // Since exceptions are disabled, we don't really know if new_handler
   // failed.  Assume it will abort if it fails.
   return nh(size) ? true : false;
+#else
+  // Without vcruntime, std::set_new_handler() keeps the only new handler (see
+  // base/process/memory_win.cc); call it as the non-Windows shim does.
+  std::new_handler nh = std::get_new_handler();
+  if (!nh)
+    return false;
+  (*nh)();
+  // Assume the new_handler will abort if it fails.
+  return true;
+#endif
 }
 
 // The Windows _aligned_* functions are implemented by creating an allocation

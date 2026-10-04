@@ -368,7 +368,9 @@ bool ContainsUnsupportedSwitch(const base::CommandLine& cmd_line) {
 bool IsProcessorSupported() {
 #if defined(ARCH_CPU_X86_FAMILY)
   return base::CPU().has_sse3();
-#elif defined(ARCH_CPU_ARM64)
+#elif defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_ARMEL)
+  // Windows on ARM (both 64-bit and 32-bit) only runs on processors that meet
+  // Chrome's baseline (ARM32 Windows requires ARMv7 with VFPv3 and NEON).
   return true;
 #else
 #error Port

@@ -24,7 +24,11 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <basetsd.h>
+// MSVC lacks ssize_t; mingw already provides a (32-bit-compatible) ssize_t, so
+// only define it for non-mingw to avoid a typedef redefinition (SSIZE_T vs int).
+#if !defined(__MINGW32__)
 typedef SSIZE_T ssize_t;
+#endif
 #endif  // BUILDFLAG(IS_WIN)
 
 namespace crashpad {

@@ -197,7 +197,7 @@ ProcessInfo::ProcessInfo(MonitoredProcessType type,
   // meaningful data.
   SampleMetrics(*this->process_metrics);
 
-#if BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_ARM64)
+#if BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_ARM_FAMILY)
   // Record the value of HasConstantRateTSC to get a feel of the proportion of
   // users that don't record the average CPU usage histogram.
   base::UmaHistogramBoolean("PerformanceMonitor.HasPreciseCPUUsage",

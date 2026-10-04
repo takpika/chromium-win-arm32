@@ -42,7 +42,9 @@ static bool linker_notifications_are_active = false;
 // callbacks.
 static void NTAPI on_callback(PVOID h, DWORD reason, PVOID reserved);
 
-#ifdef _WIN64
+// win-arm32: 32-bit but undecorated COFF symbols (like x64/arm64), so it belongs
+// in the _WIN64 (no-underscore) branch, not the x86-32 leading-underscore branch.
+#if defined(_WIN64) || defined(_M_ARM) || defined(__arm__)
 
 #pragma comment(linker, "/INCLUDE:_tls_used")
 #pragma comment(linker, "/INCLUDE:p_thread_callback_dllmain_typical_entry")
@@ -61,7 +63,7 @@ extern "C" PIMAGE_TLS_CALLBACK __xl_a, __xl_z;
 // extern "C" suppresses C++ name mangling so we know the symbol names for the
 // linker /INCLUDE:symbol pragmas above.
 extern "C" {
-#ifdef _WIN64
+#if defined(_WIN64) || defined(_M_ARM) || defined(__arm__)
 
 // .CRT section is merged with .rdata on x64 so it must be constant data.
 #pragma data_seg(push, old_seg)

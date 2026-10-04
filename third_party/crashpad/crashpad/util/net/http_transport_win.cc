@@ -69,6 +69,8 @@ std::string UserAgent() {
     user_agent.append("x64");
 #elif defined(ARCH_CPU_ARM64)
     user_agent.append("arm64");
+#elif defined(ARCH_CPU_ARMEL)
+    user_agent.append("arm");
 #else
 #error Port
 #endif

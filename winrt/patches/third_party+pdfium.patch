@@ -1,0 +1,35 @@
+diff --git a/third_party/base/memory/aligned_memory.cc b/third_party/base/memory/aligned_memory.cc
+index 10884e8f457e8f910316558530375f21080d081d..841301674603bbb5ffc6cfe0b09d5bd04fd56b6d 100644
+--- a/third_party/base/memory/aligned_memory.cc
++++ b/third_party/base/memory/aligned_memory.cc
+@@ -19,7 +19,7 @@ void* AlignedAlloc(size_t size, size_t alignment) {
+   DCHECK(bits::IsPowerOfTwo(alignment));
+   DCHECK_EQ(alignment % sizeof(void*), 0U);
+   void* ptr = nullptr;
+-#if defined(COMPILER_MSVC)
++#if BUILDFLAG(IS_WIN)
+   ptr = _aligned_malloc(size, alignment);
+ #elif BUILDFLAG(IS_ANDROID)
+   // Android technically supports posix_memalign(), but does not expose it in
+diff --git a/third_party/base/memory/aligned_memory.h b/third_party/base/memory/aligned_memory.h
+index 26a2ff25710fe3a9fa9feb2a6f75ba63562f0c0b..22b29a3547e96ca24bcb99e24be1e43528402419 100644
+--- a/third_party/base/memory/aligned_memory.h
++++ b/third_party/base/memory/aligned_memory.h
+@@ -15,7 +15,7 @@
+ #include "third_party/base/bits.h"
+ #include "third_party/base/check.h"
+ 
+-#if defined(COMPILER_MSVC)
++#if BUILDFLAG(IS_WIN)
+ #include <malloc.h>
+ #else
+ #include <stdlib.h>
+@@ -42,7 +42,7 @@ namespace base {
+ BASE_EXPORT void* AlignedAlloc(size_t size, size_t alignment);
+ 
+ inline void AlignedFree(void* ptr) {
+-#if defined(COMPILER_MSVC)
++#if BUILDFLAG(IS_WIN)
+   _aligned_free(ptr);
+ #else
+   free(ptr);

@@ -531,15 +531,23 @@ crashpad_static_library("util") {
       "win/xp_compat.h",
     ]
 
-    if (current_cpu != "arm64") {
+    if (current_cpu == "x86" || current_cpu == "x64") {
       sources += [
         "misc/capture_context_win.asm",
         "win/safe_terminate_process.asm",
       ]
+    } else if (current_cpu == "arm") {
+      # win-arm32 is built with clang's integrated assembler, which speaks GNU
+      # dialect and cannot consume the Microsoft-dialect x86/x64
+      # capture_context_win.asm. Provide the arm32 CaptureContext body as a .S
+      # (the same approach the Linux/macOS/Fuchsia ports use). No arm32
+      # safe_terminate_process asm is needed: safe_terminate_process.h supplies
+      # an inline TerminateProcess() wrapper for !ARCH_CPU_X86.
+      sources += [ "misc/capture_context_win_arm.S" ]
     } else {
-      # Most Crashpad builds use Microsoft's armasm64.exe macro assembler for
-      # .asm source files. When building in Chromium, clang-cl is used as the
-      # assembler instead. Since the two assemblers recognize different
+      # arm64: most Crashpad builds use Microsoft's armasm64.exe macro assembler
+      # for .asm source files. When building in Chromium, clang-cl is used as
+      # the assembler instead. Since the two assemblers recognize different
       # assembly dialects, the same .asm file can't be used for each. As a
       # workaround, use a prebuilt .obj file when the Microsoft-dialect
       # assembler isn't available.

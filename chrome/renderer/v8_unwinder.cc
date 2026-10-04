@@ -86,6 +86,16 @@ v8::MemoryRange GetEmbeddedCodeRange(v8::Isolate* isolate) {
   return range;
 }
 
+#if defined(ARCH_CPU_ARM_FAMILY) && defined(ARCH_CPU_32_BITS)
+// The callee-saved registers r4-r10 in base::RegisterContext: Linux/Android's
+// mcontext_t names them arm_rN, Windows' ::CONTEXT names them RN.
+#if BUILDFLAG(IS_WIN)
+#define REGISTER_CONTEXT_ARM_R(context, n) (context).R##n
+#else
+#define REGISTER_CONTEXT_ARM_R(context, n) (context).arm_r##n
+#endif
+#endif
+
 void CopyCalleeSavedRegisterFromRegisterContext(
     const base::RegisterContext& register_context,
     v8::CalleeSavedRegisters* callee_saved_registers) {
@@ -94,19 +104,19 @@ void CopyCalleeSavedRegisterFromRegisterContext(
   // https://crbug.com/v8/10799.
   DCHECK(callee_saved_registers);
   callee_saved_registers->arm_r4 =
-      reinterpret_cast<void*>(register_context.arm_r4);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 4));
   callee_saved_registers->arm_r5 =
-      reinterpret_cast<void*>(register_context.arm_r5);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 5));
   callee_saved_registers->arm_r6 =
-      reinterpret_cast<void*>(register_context.arm_r6);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 6));
   callee_saved_registers->arm_r7 =
-      reinterpret_cast<void*>(register_context.arm_r7);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 7));
   callee_saved_registers->arm_r8 =
-      reinterpret_cast<void*>(register_context.arm_r8);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 8));
   callee_saved_registers->arm_r9 =
-      reinterpret_cast<void*>(register_context.arm_r9);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 9));
   callee_saved_registers->arm_r10 =
-      reinterpret_cast<void*>(register_context.arm_r10);
+      reinterpret_cast<void*>(REGISTER_CONTEXT_ARM_R(register_context, 10));
 #endif
 }
 
@@ -115,22 +125,26 @@ void CopyCalleeSavedRegisterToRegisterContext(
     base::RegisterContext& register_context) {
 #if defined(ARCH_CPU_ARM_FAMILY) && defined(ARCH_CPU_32_BITS)
   DCHECK(callee_saved_registers);
-  register_context.arm_r4 =
+  REGISTER_CONTEXT_ARM_R(register_context, 4) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r4);
-  register_context.arm_r5 =
+  REGISTER_CONTEXT_ARM_R(register_context, 5) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r5);
-  register_context.arm_r6 =
+  REGISTER_CONTEXT_ARM_R(register_context, 6) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r6);
-  register_context.arm_r7 =
+  REGISTER_CONTEXT_ARM_R(register_context, 7) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r7);
-  register_context.arm_r8 =
+  REGISTER_CONTEXT_ARM_R(register_context, 8) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r8);
-  register_context.arm_r9 =
+  REGISTER_CONTEXT_ARM_R(register_context, 9) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r9);
-  register_context.arm_r10 =
+  REGISTER_CONTEXT_ARM_R(register_context, 10) =
       reinterpret_cast<uintptr_t>(callee_saved_registers->arm_r10);
 #endif
 }
+
+#if defined(REGISTER_CONTEXT_ARM_R)
+#undef REGISTER_CONTEXT_ARM_R
+#endif
 
 }  // namespace
 

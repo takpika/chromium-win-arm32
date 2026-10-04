@@ -1,0 +1,13 @@
+diff --git a/codec/common/src/crt_util_safe_x.cpp b/codec/common/src/crt_util_safe_x.cpp
+index 9d54ea8e675dcfb58861cb2c86b26cff78d3cd05..3a6ed442dd9f31e923e98d06fe9d92a2f6d85ebb 100644
+--- a/codec/common/src/crt_util_safe_x.cpp
++++ b/codec/common/src/crt_util_safe_x.cpp
+@@ -56,7 +56,7 @@
+ #include "macros.h"
+ #include "crt_util_safe_x.h" // Safe CRT routines like utils for cross platforms
+ 
+-#if defined(_WIN32) && defined(_MSC_VER)
++#if defined(_WIN32)
+ 
+ #if defined(_MSC_VER) && (_MSC_VER>=1500)
+ 

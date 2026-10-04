@@ -147,6 +147,24 @@ static_library("sandbox") {
       "src/resolver_32.cc",
       "src/service_resolver_32.cc",
     ]
+  } else if (current_cpu == "arm") {
+    # win-arm32: 32-bit ARM (Thumb-2) resolver + service resolver, plus the SAME
+    # arch-neutral interceptors_64.cc the 64-bit targets use. win-arm32 adopts the
+    # 64-bit g_originals interceptor model (bare jump-to-interceptor thunk; the
+    # Target*64 wrappers recover the original from g_originals[]) because the x86
+    # model of inserting original_function as the interceptor's first argument is
+    # impossible on AAPCS. resolver_arm.cc supplies the ResolverThunk method
+    # bodies and service_resolver_arm.cc the ServiceResolverThunk family vtables
+    # that resolver.cc/service_resolver.cc/interception.cc reference; without this
+    # branch content_shell fails to link with undefined sandbox::ResolverThunk::*
+    # and vtable for sandbox::*ResolverThunk. interceptors.h/interception.h route
+    # __arm__ to the Target*64 interceptors that interceptors_64.cc defines.
+    sources += [
+      "src/interceptors_64.cc",
+      "src/interceptors_64.h",
+      "src/resolver_arm.cc",
+      "src/service_resolver_arm.cc",
+    ]
   }
 
   # Disable sanitizer coverage in the sandbox code. The sandbox code runs before

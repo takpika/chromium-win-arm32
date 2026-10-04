@@ -304,10 +304,18 @@ LayoutObject::SetLayoutNeededForbiddenScope::~SetLayoutNeededForbiddenScope() {
 struct SameSizeAsLayoutObject : public GarbageCollected<SameSizeAsLayoutObject>,
                                 ImageResourceObserver,
                                 DisplayItemClient {
-  // Normally these additional bitfields can use the gap between
-  // DisplayItemClient and bitfields_.
-  uint8_t additional_bitfields_;
-  uint16_t additional_bitfields2_;
+  // The real LayoutObject's "additional" fields are BIT-FIELDS (unsigned x : N),
+  // not plain scalars. This build's llvm-mingw defaults to -mms-bitfields
+  // (MS-compatible bit-field layout), under which those unsigned bit-fields open
+  // a fresh 4-byte allocation unit instead of packing into the DisplayItemClient
+  // base's tail padding; the previous scalar model (uint8_t/uint16_t) DID pack
+  // into that gap, making the shadow 4 bytes smaller than the real object and
+  // tripping ASSERT_SIZE (real 52 vs shadow 48). Modeling them as bit-fields
+  // (matching the real class) is layout-faithful under -mms-bitfields AND
+  // size-identical to the previous model on every non-ms-bitfields target
+  // (Linux/macOS/Android/MSVC), so the guard stays valid everywhere.
+  unsigned additional_bitfields_ : 8;
+  unsigned additional_bitfields2_ : 16;
 #if DCHECK_IS_ON()
   unsigned debug_bitfields_;
 #endif

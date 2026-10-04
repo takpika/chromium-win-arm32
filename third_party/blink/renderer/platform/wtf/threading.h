@@ -77,7 +77,7 @@ class WTF_EXPORT Threading {
   // Must be called on the main thread before any callers to wtfThreadData().
   static void Initialize();
 
-#if BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
   static size_t ThreadStackSize();
 #endif
 
@@ -86,7 +86,7 @@ class WTF_EXPORT Threading {
 
   base::PlatformThreadId thread_id_;
 
-#if BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
   size_t thread_stack_size_ = 0u;
 #endif
 

@@ -116,6 +116,11 @@ bool ThreadSnapshotWin::Initialize(
   context_.arm64 = &context_union_.arm64;
   InitializeARM64Context(process_reader_thread.context.context<CONTEXT>(),
                          context_.arm64);
+#elif defined(ARCH_CPU_ARMEL)
+  context_.architecture = kCPUArchitectureARM;
+  context_.arm = &context_union_.arm;
+  InitializeARMContext(process_reader_thread.context.context<CONTEXT>(),
+                       context_.arm);
 #else
 #error Unsupported Windows Arch
 #endif  // ARCH_CPU_X86

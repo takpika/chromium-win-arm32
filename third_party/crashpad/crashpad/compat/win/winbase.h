@@ -16,7 +16,15 @@
 #define CRASHPAD_COMPAT_WIN_WINBASE_H_
 
 // include_next <winbase.h>
+#if defined(__MINGW32__)
+// llvm-mingw: chain to mingw's real <winbase.h> (the `../um/` form assumes the MSVC
+// SDK layout and pulls MSVC/xwin headers that are not clang-parseable and,
+// mixed into an otherwise-mingw TU, drag in un-no-op'd SAL/kernel annotation
+// macros. Matches the existing compat/win/winternl.h + time.h fix.)
+#include_next <winbase.h>
+#else
 #include <../um/winbase.h>
+#endif
 
 // 10.0.15063.0 SDK
 

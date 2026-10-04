@@ -15,6 +15,16 @@
 
 #include "base/win/win_handle_types.h"
 
+// With mingw-w64's headers (the win-arm32 -gnu build) the macros below repeat
+// windows.h with the same values but different spellings (e.g. ERROR_SUCCESS
+// is __MSABI_LONG(0) there, 0L here). Allow the repetition when windows.h comes
+// first. The macros keep the same values (REG_NONE and REG_BINARY also change
+// from mingw-w64's int to the Windows SDK's unsigned long).
+#if defined(__MINGW32__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmacro-redefined"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -275,8 +285,14 @@ struct CHROME_MSG {
 #define CALLBACK __stdcall
 
 // Needed for LockImpl.
+#if defined(__MINGW32__)
+// As in mingw-w64's synchapi.h, which declares it without WINBASEAPI.
+_Releases_exclusive_lock_(*SRWLock) VOID WINAPI
+    ReleaseSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
+#else
 WINBASEAPI _Releases_exclusive_lock_(*SRWLock) VOID WINAPI
     ReleaseSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
+#endif
 WINBASEAPI BOOLEAN WINAPI TryAcquireSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
 
 // Needed to support protobuf's GetMessage macro magic.
@@ -361,5 +377,9 @@ inline MSG* ChromeToWindowsType(CHROME_MSG* p) {
 #define SendMessage SendMessageW
 #define SendMessageCallback SendMessageCallbackW
 #define SetCurrentDirectory SetCurrentDirectoryW
+
+#if defined(__MINGW32__)
+#pragma clang diagnostic pop
+#endif
 
 #endif  // BASE_WIN_WINDOWS_TYPES_H_

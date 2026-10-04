@@ -48,6 +48,22 @@ if (target_cpu == "arm64") {
   }
 }
 
+if (target_cpu == "arm") {
+  win_toolchains("arm") {
+    toolchain_arch = "arm"
+  }
+
+  # courgette/BUILD.gn references win_clang_x64 (its x86_64 courgette64 helper) for every
+  # non-x64 Windows target. Nothing else defines win_clang_x64 when target_cpu=="arm" (the
+  # x86/x64 block is gated on target_cpu), so define it here, on any host. It is an x86_64
+  # toolchain of the same llvm-mingw family as the arm one: build/config/win/BUILD.gn gives
+  # its compiles --target=x86_64-w64-windows-gnu, and toolchain.gni links it with
+  # /MACHINE:X64 and Microsoft's x64 static CRT, as the arm toolchain links the arm one.
+  win_toolchains("x64") {
+    toolchain_arch = "x64"
+  }
+}
+
 # The nacl_win64 toolchain is nearly identical to the plain x64 toolchain.
 # It's used solely for building nacl64.exe (//components/nacl/broker:nacl64).
 # The only reason it's a separate toolchain is so that it can force

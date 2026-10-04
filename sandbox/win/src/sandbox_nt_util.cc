@@ -744,3 +744,20 @@ void* __cdecl operator new(size_t size,
 void __cdecl operator delete(void* memory,
                              void* buffer,
                              sandbox::AllocationType type) {}
+
+// Array forms of the ntdll-interception placement new/delete. Clang (unlike
+// MSVC, which historically routed an array placement new-expression to the
+// scalar operator) requires a matching `operator new[]` for `new (TYPE) T[n]`
+// (e.g. interception_agent.cc). Forward to the scalar forms above — the sandbox
+// heap allocation is size-based and identical for scalar and array.
+void* operator new[](size_t size,
+                     sandbox::AllocationType type,
+                     void* near_to) {
+  return operator new(size, type, near_to);
+}
+
+void operator delete[](void* memory,
+                       sandbox::AllocationType type,
+                       void* near_to) {
+  operator delete(memory, type);
+}

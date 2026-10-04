@@ -47,6 +47,8 @@ const char kOs[] =
 const char kArch[] =
 #if defined(__amd64__) || defined(_WIN64)
     "x64";
+#elif defined(__arm__) && defined(_WIN32)
+    "arm";  // 32-bit ARM Windows also defines _WIN32; don't report x86.
 #elif defined(__i386__) || defined(_WIN32)
     "x86";
 #elif defined(__arm__)

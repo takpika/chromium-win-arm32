@@ -1,0 +1,65 @@
+diff --git a/vp8/common/threading.h b/vp8/common/threading.h
+index 1cfb9fec515461462a1160488284a87e22ed49b8..8e72b0e6426892bb64ccf4600779b53f6268297d 100644
+--- a/vp8/common/threading.h
++++ b/vp8/common/threading.h
+@@ -24,13 +24,25 @@ extern "C" {
+ /* Win32 */
+ #include <process.h>
+ #include <windows.h>
++// force_align_arg_pointer is an x86-only attribute, which clang warns about
++// on other targets (e.g. a MinGW ARM target); test for it where the compiler
++// can, as third_party/qcms does.
++#ifndef VPX_FORCE_ALIGN_ARG_POINTER
+ #if defined(__GNUC__) && \
+     (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2))
+-#define THREAD_FUNCTION \
+-  __attribute__((force_align_arg_pointer)) unsigned int __stdcall
++#if defined(__has_attribute)
++#if __has_attribute(force_align_arg_pointer)
++#define VPX_FORCE_ALIGN_ARG_POINTER __attribute__((force_align_arg_pointer))
++#endif
+ #else
+-#define THREAD_FUNCTION unsigned int __stdcall
++#define VPX_FORCE_ALIGN_ARG_POINTER __attribute__((force_align_arg_pointer))
++#endif
++#endif
++#ifndef VPX_FORCE_ALIGN_ARG_POINTER
++#define VPX_FORCE_ALIGN_ARG_POINTER
++#endif
+ #endif
++#define THREAD_FUNCTION VPX_FORCE_ALIGN_ARG_POINTER unsigned int __stdcall
+ #define THREAD_FUNCTION_RETURN DWORD
+ #define THREAD_SPECIFIC_INDEX DWORD
+ #define pthread_t HANDLE
+diff --git a/vpx_util/vpx_thread.h b/vpx_util/vpx_thread.h
+index 6d308e949b1189d50f85f19d5849f6ff4d776da2..29c2ad5120a6f0c39f15d50c221b29269a4f7727 100644
+--- a/vpx_util/vpx_thread.h
++++ b/vpx_util/vpx_thread.h
+@@ -58,12 +58,25 @@ typedef struct {
+ // simplistic pthread emulation layer
+ 
+ // _beginthreadex requires __stdcall
++// force_align_arg_pointer is an x86-only attribute, which clang warns about
++// on other targets (e.g. a MinGW ARM target); test for it where the compiler
++// can, as third_party/qcms does.
++#ifndef VPX_FORCE_ALIGN_ARG_POINTER
+ #if defined(__GNUC__) && \
+     (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2))
+-#define THREADFN __attribute__((force_align_arg_pointer)) unsigned int __stdcall
++#if defined(__has_attribute)
++#if __has_attribute(force_align_arg_pointer)
++#define VPX_FORCE_ALIGN_ARG_POINTER __attribute__((force_align_arg_pointer))
++#endif
+ #else
+-#define THREADFN unsigned int __stdcall
++#define VPX_FORCE_ALIGN_ARG_POINTER __attribute__((force_align_arg_pointer))
++#endif
++#endif
++#ifndef VPX_FORCE_ALIGN_ARG_POINTER
++#define VPX_FORCE_ALIGN_ARG_POINTER
++#endif
+ #endif
++#define THREADFN VPX_FORCE_ALIGN_ARG_POINTER unsigned int __stdcall
+ #define THREAD_RETURN(val) (unsigned int)((DWORD_PTR)val)
+ 
+ #if _WIN32_WINNT >= 0x0501  // Windows XP or greater

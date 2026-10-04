@@ -1,0 +1,65 @@
+diff --git a/src/utils/threadpool.cc b/src/utils/threadpool.cc
+index a3099e15db9c2430764bc22bbd6a32ab3045aaa5..bf95b9699c7166d8e3d55c88dbf8d043f633e2d5 100644
+--- a/src/utils/threadpool.cc
++++ b/src/utils/threadpool.cc
+@@ -14,12 +14,12 @@
+ 
+ #include "src/utils/threadpool.h"
+ 
+-#if defined(_MSC_VER)
++#if defined(_WIN32)
+ #include <process.h>
+ #include <windows.h>
+-#else  // defined(_MSC_VER)
++#else  // defined(_WIN32)
+ #include <pthread.h>
+-#endif  // defined(_MSC_VER)
++#endif  // defined(_WIN32)
+ #if defined(__ANDROID__) || defined(__GLIBC__)
+ #include <sys/types.h>
+ #include <unistd.h>
+@@ -137,7 +137,7 @@ class ThreadPool::WorkerThread : public Allocable {
+   void Join();
+ 
+  private:
+-#if defined(_MSC_VER)
++#if defined(_WIN32)
+   static unsigned int __stdcall ThreadBody(void* arg);
+ #else
+   static void* ThreadBody(void* arg);
+@@ -147,7 +147,7 @@ class ThreadPool::WorkerThread : public Allocable {
+   void Run();
+ 
+   ThreadPool* pool_;
+-#if defined(_MSC_VER)
++#if defined(_WIN32)
+   HANDLE handle_;
+ #else
+   pthread_t thread_;
+@@ -156,7 +156,7 @@ class ThreadPool::WorkerThread : public Allocable {
+ 
+ ThreadPool::WorkerThread::WorkerThread(ThreadPool* pool) : pool_(pool) {}
+ 
+-#if defined(_MSC_VER)
++#if defined(_WIN32)
+ 
+ bool ThreadPool::WorkerThread::Start() {
+   // Since our code calls the C run-time library (CRT), use _beginthreadex
+@@ -187,7 +187,7 @@ void ThreadPool::WorkerThread::SetupName() {
+   // Not currently supported on Windows.
+ }
+ 
+-#else  // defined(_MSC_VER)
++#else  // defined(_WIN32)
+ 
+ bool ThreadPool::WorkerThread::Start() {
+   return pthread_create(&thread_, nullptr, ThreadBody, this) == 0;
+@@ -231,7 +231,7 @@ void ThreadPool::WorkerThread::SetupName() {
+   }
+ }
+ 
+-#endif  // defined(_MSC_VER)
++#endif  // defined(_WIN32)
+ 
+ void ThreadPool::WorkerThread::Run() {
+   SetupName();

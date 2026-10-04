@@ -339,14 +339,17 @@ bool D3D11VP9Accelerator::SubmitDecoderBuffer(
     buffers[2].DataOffset = 0;
     buffers[2].DataSize = copy_size;
 
+    // Must outlive SubmitDecoderBuffers(), which reads the mapping block that
+    // buffers[2].pSubSampleMappingBlock points into.
+    std::vector<D3D11_VIDEO_DECODER_SUB_SAMPLE_MAPPING_BLOCK> subsample_mapping;
     const DecryptConfig* config = pic.decrypt_config();
     if (config) {
       buffers[2].pIV = const_cast<char*>(config->iv().data());
       buffers[2].IVSize = config->iv().size();
       // Subsamples matter iff there is IV, for decryption.
       if (!config->subsamples().empty()) {
-        buffers[2].pSubSampleMappingBlock =
-            CreateSubsampleMappingBlock(config->subsamples()).data();
+        subsample_mapping = CreateSubsampleMappingBlock(config->subsamples());
+        buffers[2].pSubSampleMappingBlock = subsample_mapping.data();
         buffers[2].SubSampleMappingCount = config->subsamples().size();
       }
     }

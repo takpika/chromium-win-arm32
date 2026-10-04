@@ -523,8 +523,16 @@ std::unique_ptr<media::VideoCaptureDevice> DesktopCaptureDevice::Create(
 
 #if BUILDFLAG(IS_WIN)
   options.set_allow_cropping_window_capturer(true);
+  // WebRTC gates the WGC capturer on RTC_ENABLE_WIN_WGC, which webrtc.gni disables for
+  // current_cpu=="arm" (rtc_enable_win_wgc = is_win && current_cpu != "arm"), so
+  // DesktopCaptureOptions::set_allow_wgc_capturer only exists when that define is set. The
+  // upstream caller guards on IS_WIN alone, referencing a method absent on win-arm32. Match
+  // the call to webrtc's own WGC-availability define so win-arm32 behaves exactly like a stock
+  // webrtc-arm build (no WGC there either) -- no capability lost vs stock.
+#if defined(RTC_ENABLE_WIN_WGC)
   if (base::FeatureList::IsEnabled(features::kWebRtcAllowWgcDesktopCapturer))
     options.set_allow_wgc_capturer(true);
+#endif
 #endif
 
   // For browser tests, to create a fake desktop capturer.

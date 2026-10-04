@@ -34,7 +34,7 @@ typedef uint32_t zip_uint32_t;
 typedef int64_t zip_int64_t;
 typedef uint64_t zip_uint64_t;
 
-#if defined(OS_WIN)
+#if defined(OS_WIN) && !defined(__MINGW32__)
 typedef int mode_t;
 #endif
 
