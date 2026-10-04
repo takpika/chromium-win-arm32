@@ -1,0 +1,133 @@
+# One build stage per flavor: continues out/<flavor> from the previous stage for as long as the
+# job time limit allows, then hands it to the next stage, or packages the finished build.
+name: Build stage
+on:
+  workflow_call:
+    inputs:
+      stage:
+        type: number
+        required: true
+      sdk_key:
+        type: string
+        required: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [chrome, chromium]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 358
+    steps:
+      - name: Start time
+        run: echo "START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Already finished?
+        id: done
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: done-${{ matrix.flavor }}
+          path: ${{ runner.temp }}/done
+
+      - name: Checkout CI scripts
+        if: steps.done.outcome != 'success'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: winrt
+          fetch-depth: 1
+
+      - name: Prepare /opt/winrt
+        if: steps.done.outcome != 'success'
+        run: |
+          sudo mkdir -p /opt/winrt && sudo chown "$(id -u):$(id -g)" /opt/winrt
+          df -h /
+
+      - name: Restore toolchain
+        if: steps.done.outcome != 'success'
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ inputs.sdk_key }}
+          path: /opt/winrt/sdk
+          fail-on-cache-miss: true
+
+      - name: Builder image
+        if: steps.done.outcome != 'success'
+        uses: ./winrt/ci/image
+
+      - name: Checkout source
+        if: steps.done.outcome != 'success'
+        run: winrt/ci/run checkout.sh "$GITHUB_SHA"
+
+      - name: Previous stage output
+        if: steps.done.outcome != 'success' && inputs.stage > 1
+        uses: actions/download-artifact@v4
+        with:
+          name: out-${{ matrix.flavor }}-${{ inputs.stage - 1 }}
+          path: /opt/winrt/xfer
+
+      - name: Unpack previous stage output
+        if: steps.done.outcome != 'success' && inputs.stage > 1
+        run: |
+          sudo mkdir -p /opt/winrt/gc/src/out
+          cat /opt/winrt/xfer/out.tar.zst.* | sudo tar -I zstd -xf - -C /opt/winrt/gc/src/out
+          sudo rm -rf /opt/winrt/xfer
+
+      - name: Build
+        id: build
+        if: steps.done.outcome != 'success'
+        run: |
+          # Leave time to hand the output on: ~25 min for packing and uploading.
+          left=$(( (START + 330*60 - $(date +%s)) / 60 - 25 ))
+          echo "building for at most $left min"
+          [ "$left" -gt 10 ] || { echo "result=continue" >> "$GITHUB_OUTPUT"; exit 0; }
+          set +e
+          winrt/ci/run build.sh ${{ matrix.flavor }} "$left"
+          rc=$?
+          set -e
+          case $rc in
+            0) echo "result=finished" >> "$GITHUB_OUTPUT" ;;
+            3) echo "result=continue" >> "$GITHUB_OUTPUT" ;;
+            *) exit $rc ;;
+          esac
+
+      - name: Pack output for the next stage
+        if: steps.build.outputs.result == 'continue'
+        run: |
+          sudo rm -rf /opt/winrt/gc/src/out/${{ matrix.flavor }}/thinlto-cache
+          mkdir -p /opt/winrt/xfer
+          sudo tar -C /opt/winrt/gc/src/out -cf - ${{ matrix.flavor }} | zstd -T0 -3 | split -b 4G - /opt/winrt/xfer/out.tar.zst.
+          ls -la /opt/winrt/xfer
+
+      - name: Upload output for the next stage
+        if: steps.build.outputs.result == 'continue'
+        uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ matrix.flavor }}-${{ inputs.stage }}
+          path: /opt/winrt/xfer
+          retention-days: 2
+          compression-level: 0
+
+      - name: Package
+        if: steps.build.outputs.result == 'finished'
+        run: |
+          winrt/ci/run python3 /opt/winrt/repo/winrt/ci/package.py ${{ matrix.flavor }} /opt/winrt/gc/src/out/${{ matrix.flavor }} /opt/winrt/dist
+          mkdir -p "$RUNNER_TEMP/done" && echo "${{ inputs.stage }}" > "$RUNNER_TEMP/done/done"
+
+      - name: Upload package
+        if: steps.build.outputs.result == 'finished'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.flavor }}
+          path: /opt/winrt/dist/*.zip
+          retention-days: 14
+          compression-level: 0
+
+      - name: Mark finished
+        if: steps.build.outputs.result == 'finished'
+        uses: actions/upload-artifact@v4
+        with:
+          name: done-${{ matrix.flavor }}
+          path: ${{ runner.temp }}/done
+          retention-days: 2
