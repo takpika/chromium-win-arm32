@@ -8,7 +8,7 @@
 set -eu
 V=16.13.0
 SHA256=93a0d03f9f802353cb7052bc97a02cd9642b49fa985671cdc16c99936c86d7d2
-CHROMIUM_SRC=${CHROMIUM_SRC:-/opt/winrt/chromium}
+CHROMIUM_SRC=${CHROMIUM_SRC:-/home/winrt/chromium}
 D=$CHROMIUM_SRC/third_party/node/linux
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 curl -sfL "https://nodejs.org/dist/v$V/node-v$V-linux-arm64.tar.xz" -o "$W/node.tar.xz"

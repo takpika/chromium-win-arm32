@@ -41,10 +41,10 @@ jobs:
           sparse-checkout: winrt
           fetch-depth: 1
 
-      - name: Prepare /opt/winrt
+      - name: Prepare /home/winrt
         if: steps.done.outcome != 'success'
         run: |
-          sudo mkdir -p /opt/winrt && sudo chown "$(id -u):$(id -g)" /opt/winrt
+          sudo mkdir -p /home/winrt && sudo chown "$(id -u):$(id -g)" /home/winrt
           df -h /
 
       - name: Restore toolchain
@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           key: ${{ inputs.sdk_key }}
-          path: /opt/winrt/sdk
+          path: /home/winrt/sdk
           fail-on-cache-miss: true
 
       - name: Builder image
@@ -68,14 +68,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: out-${{ matrix.flavor }}-${{ steps.start.outputs.prev }}
-          path: /opt/winrt/xfer
+          path: /home/winrt/xfer
 
       - name: Unpack previous stage output
         if: steps.done.outcome != 'success' && inputs.stage > 1
         run: |
-          sudo mkdir -p /opt/winrt/gc/src/out
-          cat /opt/winrt/xfer/out.tar.zst.* | sudo tar -I zstd -xf - -C /opt/winrt/gc/src/out
-          sudo rm -rf /opt/winrt/xfer
+          sudo mkdir -p /home/winrt/gc/src/out
+          cat /home/winrt/xfer/out.tar.zst.* | sudo tar -I zstd -xf - -C /home/winrt/gc/src/out
+          sudo rm -rf /home/winrt/xfer
 
       - name: Build
         id: build
@@ -98,24 +98,24 @@ jobs:
       - name: Pack output for the next stage
         if: steps.build.outputs.result == 'continue'
         run: |
-          sudo rm -rf /opt/winrt/gc/src/out/${{ matrix.flavor }}/thinlto-cache
-          mkdir -p /opt/winrt/xfer
-          sudo tar -C /opt/winrt/gc/src/out -cf - ${{ matrix.flavor }} | zstd -T0 -3 | split -b 4G - /opt/winrt/xfer/out.tar.zst.
-          ls -la /opt/winrt/xfer
+          sudo rm -rf /home/winrt/gc/src/out/${{ matrix.flavor }}/thinlto-cache
+          mkdir -p /home/winrt/xfer
+          sudo tar -C /home/winrt/gc/src/out -cf - ${{ matrix.flavor }} | zstd -T0 -3 | split -b 4G - /home/winrt/xfer/out.tar.zst.
+          ls -la /home/winrt/xfer
 
       - name: Upload output for the next stage
         if: steps.build.outputs.result == 'continue'
         uses: actions/upload-artifact@v4
         with:
           name: out-${{ matrix.flavor }}-${{ inputs.stage }}
-          path: /opt/winrt/xfer
+          path: /home/winrt/xfer
           retention-days: 2
           compression-level: 0
 
       - name: Package
         if: steps.build.outputs.result == 'finished'
         run: |
-          winrt/ci/run python3 /opt/winrt/repo/winrt/ci/package.py ${{ matrix.flavor }} /opt/winrt/gc/src/out/${{ matrix.flavor }} /opt/winrt/dist
+          winrt/ci/run python3 /home/winrt/repo/winrt/ci/package.py ${{ matrix.flavor }} /home/winrt/gc/src/out/${{ matrix.flavor }} /home/winrt/dist
           mkdir -p "$RUNNER_TEMP/done" && echo "${{ inputs.stage }}" > "$RUNNER_TEMP/done/done"
 
       - name: Upload package
@@ -123,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.flavor }}
-          path: /opt/winrt/dist/*.zip
+          path: /home/winrt/dist/*.zip
           retention-days: 14
           compression-level: 0
 

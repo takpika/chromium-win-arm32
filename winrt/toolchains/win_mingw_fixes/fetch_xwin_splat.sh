@@ -12,11 +12,11 @@
 # installation keeps them (VC/Tools/MSVC/<version>/atlmfc/include): splat merges them into
 # crt/include with the C runtime's and the C++ standard library's headers, and the win-arm32 build
 # (mingw-w64 headers, libc++) must be able to use ATL without MSVC's runtime headers on its path.
-# Output: $OUT (default /opt/winrt/sdk/xwin-10.0.22621); a sorted sha256 manifest of every
+# Output: $OUT (default /home/winrt/sdk/xwin-10.0.22621); a sorted sha256 manifest of every
 # regular file, printed and written to $OUT.sha256.
 set -eu
-OUT=${OUT:-/opt/winrt/sdk/xwin-10.0.22621}
-CACHE=${CACHE:-/opt/winrt/sdk/staging/xwin-cache}
+OUT=${OUT:-/home/winrt/sdk/xwin-10.0.22621}
+CACHE=${CACHE:-/home/winrt/sdk/staging/xwin-cache}
 xwin --version | grep -qx "xwin 0.10.0"
 xwin --accept-license --include-atl --arch aarch,x86_64 --manifest-version 17 --sdk-version 10.0.22621 --crt-version 14.44.17.14 --cache-dir "$CACHE" \
   splat --copy --preserve-ms-arch-notation --include-debug-symbols --output "$OUT"

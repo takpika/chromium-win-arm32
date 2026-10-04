@@ -7,11 +7,11 @@
 # toolchains do not use them (build/config/win/BUILD.gn and build/toolchain/win/toolchain.gni set
 # their include and library flags). They name only directories of the Windows SDK/CRT splat
 # (fetch_xwin_splat.sh), so the output does not depend on $OUT.
-# Output: $OUT (default /opt/winrt/sdk/winrt-sdk).
+# Output: $OUT (default /home/winrt/sdk/winrt-sdk).
 set -eu
-ROOT=${WIN_MINGW_ROOT:-/opt/winrt/sdk/llvm-mingw-winrt}
-XWIN=${WIN_SDK_SPLAT:-/opt/winrt/sdk/xwin-10.0.22621}
-OUT=${OUT:-/opt/winrt/sdk/winrt-sdk}
+ROOT=${WIN_MINGW_ROOT:-/home/winrt/sdk/llvm-mingw-winrt}
+XWIN=${WIN_SDK_SPLAT:-/home/winrt/sdk/xwin-10.0.22621}
+OUT=${OUT:-/home/winrt/sdk/winrt-sdk}
 
 rm -rf "$OUT"; mkdir -p "$OUT/vs/bin" "$OUT/vs/win_sdk/bin"
 for cpu in arm x64; do

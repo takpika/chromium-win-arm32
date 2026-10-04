@@ -1,11 +1,11 @@
 #!/bin/bash
 # checkout.sh <commit>: gclient checkout of this repository at <commit> with every DEPS
-# dependency (no history) into /opt/winrt/gc/src, then the nested-repository patches
+# dependency (no history) into /home/winrt/gc/src, then the nested-repository patches
 # (winrt/patches/series) and the linux-arm64 host tools the DEPS hooks do not provide.
 # Source mtimes are pinned so that a later job can continue an earlier job's out/ directory.
 set -euxo pipefail
 COMMIT=$1
-W=/opt/winrt
+W=/home/winrt
 G=$W/gc
 S=$G/src
 DT=$W/depot_tools
@@ -24,7 +24,12 @@ solutions = [{
   "url": "https://github.com/${GITHUB_REPOSITORY}.git@${COMMIT}",
   "deps_file": "DEPS",
   "managed": False,
-  "custom_deps": {},
+  # CIPD packages with no linux-arm64 build at Chromium 109's pins: reclient (not used) and the
+  # host 7-Zip (installed below from winrt/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh).
+  "custom_deps": {
+    "src/buildtools/reclient:infra/rbe/client/\${{platform}}": None,
+    "src/third_party/lzma_sdk/bin/host_platform:infra/3pp/tools/7z/\${{platform}}": None,
+  },
   "custom_vars": {"checkout_pgo_profiles": True},
 }]
 target_os = ["win"]
@@ -42,6 +47,8 @@ gclient runhooks
 rm -rf "$W/toolchains"; cp -a "$S/winrt/toolchains" "$W/toolchains"
 ln -sfn "$S" "$W/chromium"
 CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_node_linux_arm64.sh"
+mkdir -p "$S/third_party/lzma_sdk/bin/host_platform"
+CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh"
 
 # Same mtime for every source file in every job (out/ is carried between jobs with its own).
 find "$S" -path "$S/out" -prune -o -print0 | xargs -0 touch -h -d "2023-01-01 00:00:00"

@@ -54,7 +54,7 @@ set -eu
 PIN=85ac560262434c9ccfc0c183ec22d4138ed647fb
 MINGW_W64=57b595039040eaa15bece85b7cc71d952281b269
 MINGW_W64_SHA256=a68816e314290facd5da1ac96c7eead7e6de6ea4f709a1fbdcf8185497c57eb2
-SDK=/opt/winrt/sdk
+SDK=/home/winrt/sdk
 ROOT=${WIN_MINGW_ROOT:-$SDK/llvm-mingw-winrt}
 OUT=${OUT:-$SDK/winrt-crt}
 XWIN=${WIN_SDK_SPLAT:-$SDK/xwin-10.0.22621}

@@ -1,13 +1,13 @@
 #!/bin/bash
-# Builds the port toolchain into /opt/winrt/sdk from the recipes in winrt/toolchains:
+# Builds the port toolchain into /home/winrt/sdk from the recipes in winrt/toolchains:
 #   sysroots           Chromium's DEPS-pinned debian_bullseye arm/arm64 sysroots
 #   llvm-mingw-winrt   build_llvm_winrt.sh (llvm-mingw + patched clang/lld + Chromium plugins)
 #   xwin-10.0.22621    fetch_xwin_splat.sh (Windows SDK / MSVC CRT splat)
 #   winrt-sdk          build_winrt_sdk.sh
 #   winrt-crt          build_winrt_crt_runtimes.sh
-# Runs inside the builder image; /opt/winrt/repo is a (sparse) checkout of this branch.
+# Runs inside the builder image; /home/winrt/repo is a (sparse) checkout of this branch.
 set -euxo pipefail
-W=/opt/winrt
+W=/home/winrt
 SDK=$W/sdk
 R=$W/repo
 TC=$W/toolchains/win_mingw_fixes

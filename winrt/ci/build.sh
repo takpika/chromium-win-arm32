@@ -5,7 +5,7 @@
 #   chromium  the same with Chromium's open codec set (proprietary_codecs=false, ffmpeg "Chromium")
 set -euo pipefail
 FLAVOR=$1 MINUTES=$2
-W=/opt/winrt
+W=/home/winrt
 S=$W/gc/src
 O=out/$FLAVOR
 ARGS=$W/toolchains/win_mingw_fixes/winrt_arm_args.gni

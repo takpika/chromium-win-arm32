@@ -16,7 +16,7 @@ ARG GN_REV=2dfb8cbd3b749242ee4492a7f15eba6889d52c7f
 ARG GN_SHA256=362365e3da8f4240faf4fdcebbdca2781739a48f56379bf456ca3f216d32482c
 WORKDIR /dl
 RUN set -eu; \
-    get() { curl -fsSL -o "$1" "$2"; echo "$3  $1" | sha256sum -c -; }; \
+    get() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$1" "$2"; echo "$3  $1" | sha256sum -c -; }; \
     get llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz" "$LLVM_MINGW_SHA256"; \
     get ninja.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VER}/ninja-linux-aarch64.zip" "$NINJA_SHA256"; \
     get xwin.tar.gz "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VER}/xwin-${XWIN_VER}-aarch64-unknown-linux-musl.tar.gz" "$XWIN_SHA256"; \
@@ -34,12 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
       libc6-dev libfuse-dev libattr1-dev pkg-config && rm -rf /var/lib/apt/lists/*
 ARG CIOPFS_SHA256=34d5553e519cc363f76c7435256d98b88b3e5ece1e80b9ff768b3b3c568a296b
 RUN set -eu; cd /tmp; \
-    curl -fsSL -o ciopfs.tar.gz https://www.brain-dump.org/projects/ciopfs/ciopfs-0.4.tar.gz; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o ciopfs.tar.gz https://www.brain-dump.org/projects/ciopfs/ciopfs-0.4.tar.gz; \
     echo "$CIOPFS_SHA256  ciopfs.tar.gz" | sha256sum -c -; \
     tar -xzf ciopfs.tar.gz; make -C ciopfs-0.4 ascii; install -m 0755 ciopfs-0.4/ciopfs /usr/local/bin/ciopfs
 
 FROM ${DEBIAN}
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80retries
 # gperf, pkg-config: Chromium's Linux host build runs them from PATH (install-build-deps.sh).
 # qemu-arm: the V8 snapshot tools are arm-linux binaries run under qemu-arm with the arm sysroot.
 # llvm-mc 23 from apt.llvm.org (llvm-mingw ships none; matches its clang 23).
@@ -48,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       tar zip unzip xz-utils zstd gzip bzip2 curl ca-certificates gnupg perl openssl \
       python3.11 python3-pip python3-venv python3-setuptools \
       git util-linux gperf pkgconf fuse libfuse2 qemu-user-static lsb-release \
-    && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-23 main" \
          > /etc/apt/sources.list.d/llvm.list \
     && apt-get update && apt-get install -y --no-install-recommends llvm-23 \
@@ -66,6 +67,6 @@ RUN set -eu; \
       printf '#!/bin/sh\nexec armv7-w64-mingw32-%s "$@"\n' "$t" > /usr/local/bin/$t; \
       chmod 0755 /usr/local/bin/$t; done; \
     git config --system --add safe.directory '*'
-ENV PATH=/opt/winrt/sdk/llvm-mingw-winrt/bin:/usr/local/bin:/opt/llvm-mingw/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/home/winrt/sdk/llvm-mingw-winrt/bin:/usr/local/bin:/opt/llvm-mingw/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV PYTHONDONTWRITEBYTECODE=1
-WORKDIR /opt/winrt
+WORKDIR /home/winrt

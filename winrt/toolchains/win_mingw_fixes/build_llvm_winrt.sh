@@ -63,13 +63,13 @@
 # such as llvm-ar/llvm-objcopy, which the build also uses, or clangd/clang-tidy, which it does
 # not) is llvm-mingw's, copied unchanged -- those other tools are built from the same
 # revision without the patches, none of which touches them. Output:
-# /opt/winrt/sdk/llvm-mingw-winrt (clang_base_path of the build). The replaced binaries
+# /home/winrt/sdk/llvm-mingw-winrt (clang_base_path of the build). The replaced binaries
 # report the pinned revision (LLVM_FORCE_VC_REVISION), and every name the build invokes is
 # checked to.
 #
 # Runs on the linux-arm64 build host. The host binaries are compiled with
 # llvm-mingw's own clang for aarch64-linux-gnu against the DEPS-pinned Chromium
-# debian_bullseye_arm64 sysroot (installed in /opt/winrt/sdk/sysroots), with libstdc++,
+# debian_bullseye_arm64 sysroot (installed in /home/winrt/sdk/sysroots), with libstdc++,
 # zlib and libxml2 linked statically. libxml2 (lld-link merges the images' manifests with it
 # instead of calling mt.exe) is built exactly as Chromium's own clang build does it
 # (tools/clang/scripts/build.py BuildLibXml2: libxml2-v2.9.12 from the chromium-browser-clang
@@ -80,14 +80,14 @@
 set -eu
 PIN=85ac560262434c9ccfc0c183ec22d4138ed647fb
 HERE=$(cd "$(dirname "$0")" && pwd)
-SDK=/opt/winrt/sdk
+SDK=/home/winrt/sdk
 LLVM_MINGW=/opt/llvm-mingw
 SYSROOT=$SDK/sysroots/debian_bullseye_arm64-sysroot
 # Chromium's clang plugins (find-bad-constructs, blink-gc-plugin) are compiled into clang from
 # this Chromium tree's tools/clang, as tools/clang/scripts/build.py does for Chromium's own
 # clang package (LLVM_EXTERNAL_PROJECTS=chrometools); build/config/clang/BUILD.gn and
 # third_party/blink/renderer/BUILD.gn then enable them with -Xclang -add-plugin (no -load).
-CHROMIUM_SRC=/opt/winrt/chromium
+CHROMIUM_SRC=/home/winrt/chromium
 SRC=${SRC:-$SDK/build/llvm-winrt-src}
 BUILD=${BUILD:-$SDK/build/llvm-winrt}
 OUT=${OUT:-$SDK/llvm-mingw-winrt}

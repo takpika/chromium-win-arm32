@@ -30,24 +30,24 @@ jobs:
           fetch-depth: 1
       - id: key
         run: echo "key=sdk-${{ hashFiles('winrt/toolchains/**', 'winrt/ci/Dockerfile', 'winrt/ci/toolchain.sh') }}" >> "$GITHUB_OUTPUT"
-      - run: sudo mkdir -p /opt/winrt && sudo chown "$(id -u):$(id -g)" /opt/winrt
+      - run: sudo mkdir -p /home/winrt && sudo chown "$(id -u):$(id -g)" /home/winrt
       - id: cache
         uses: actions/cache/restore@v4
         with:
           key: ${{ steps.key.outputs.key }}
-          path: /opt/winrt/sdk
+          path: /home/winrt/sdk
           lookup-only: true
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: ./winrt/ci/image
       - if: steps.cache.outputs.cache-hit != 'true'
         run: |
           winrt/ci/run toolchain.sh
-          sudo chown -R "$(id -u):$(id -g)" /opt/winrt
+          sudo chown -R "$(id -u):$(id -g)" /home/winrt
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.key.outputs.key }}
-          path: /opt/winrt/sdk
+          path: /home/winrt/sdk
 
   s1:
     needs: [toolchain]

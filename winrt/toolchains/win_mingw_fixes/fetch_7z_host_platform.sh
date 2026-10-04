@@ -17,7 +17,7 @@ set -eu
 PKG=infra/3pp/tools/7z/linux-arm64
 TAG=version:3@26.03
 SHA256=7a50842305efbb38f4a1cd4763dac120bcd255915465ab5d6c82396befde7fbd
-CHROMIUM_SRC=${CHROMIUM_SRC:-/opt/winrt/chromium}
+CHROMIUM_SRC=${CHROMIUM_SRC:-/home/winrt/chromium}
 D=$CHROMIUM_SRC/third_party/lzma_sdk/bin/host_platform
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 curl -sfL "https://chrome-infra-packages.appspot.com/dl/$PKG/+/$TAG" -o "$W/7z.zip"

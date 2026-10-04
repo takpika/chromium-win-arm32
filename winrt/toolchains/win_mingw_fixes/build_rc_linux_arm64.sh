@@ -31,9 +31,9 @@
 #     rc.cc's expression gives with signed char (x86-64), not 0xC3A9 (unsigned char).
 set -eu
 REV=909d7e6dc4660ed68027b9c0da5c41fc6b2c7b62
-ROOT=${WIN_MINGW_ROOT:-/opt/winrt/sdk/llvm-mingw-winrt}
-SYSROOT=${SYSROOT:-/opt/winrt/sdk/sysroots/debian_bullseye_arm64-sysroot}
-CHROMIUM_SRC=${CHROMIUM_SRC:-/opt/winrt/chromium}
+ROOT=${WIN_MINGW_ROOT:-/home/winrt/sdk/llvm-mingw-winrt}
+SYSROOT=${SYSROOT:-/home/winrt/sdk/sysroots/debian_bullseye_arm64-sysroot}
+CHROMIUM_SRC=${CHROMIUM_SRC:-/home/winrt/chromium}
 OUT=${OUT:-$CHROMIUM_SRC/build/toolchain/win/rc/linux-arm64/rc}
 
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
