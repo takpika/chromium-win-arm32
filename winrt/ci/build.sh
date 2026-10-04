@@ -11,20 +11,22 @@ O=out/$FLAVOR
 ARGS=$W/toolchains/win_mingw_fixes/winrt_arm_args.gni
 cd "$S"
 
-# Case-insensitive views of the Windows SDK splat and the port toolchain (as Chromium's
-# Linux->Windows builds see them): a lowercase backing copy filled through ciopfs, mounted
-# read-only over the original path.
-for N in xwin-10.0.22621 llvm-mingw-winrt; do
-  C=$W/sdk/ci/$N
+# Case-insensitive views (as Chromium's Linux->Windows builds see the SDK) of the Windows SDK
+# splat, the port toolchain and the toolchain supplement dirs: a lowercase backing copy filled
+# through ciopfs, mounted read-only over the original path. The supplement dirs need it too:
+# the tree includes their headers in either case (e.g. <DelayIMP.h> and <delayimp.h>), which
+# the original build host's case-insensitive file system resolved to one file.
+for D in sdk/xwin-10.0.22621 sdk/llvm-mingw-winrt toolchains/win_mingw_fixes toolchains/win_sdk_supplement; do
+  C=$W/ci/$(basename "$D")
   if [ ! -d "$C" ]; then
     mkdir -p "$C.new" /mnt/ci
     ciopfs -o use_ino "$C.new" /mnt/ci
-    python3 "$S/winrt/ci/ciopfs-fill" "$W/sdk/$N" /mnt/ci
+    python3 "$S/winrt/ci/ciopfs-fill" "$W/$D" /mnt/ci
     fusermount -u /mnt/ci
     mv "$C.new" "$C"
   fi
-  mountpoint -q "$W/sdk/$N" ||
-    ciopfs -o ro,use_ino,allow_other,nonempty,default_permissions "$C" "$W/sdk/$N"
+  mountpoint -q "$W/$D" ||
+    ciopfs -o ro,use_ino,allow_other,nonempty,default_permissions "$C" "$W/$D"
 done
 
 mkdir -p "$O"
@@ -55,7 +57,7 @@ for t in $WANT; do
 done
 echo "targets:$T"
 set +e
-timeout --signal=INT --kill-after=10m "${MINUTES}m" ninja -C "$O" $T
+timeout --signal=INT --kill-after=10m "${MINUTES}m" ninja -k 0 -C "$O" $T
 rc=$?
 set -e
 [ $rc -eq 124 ] && { echo "time is up; continuing in the next job"; exit 3; }
