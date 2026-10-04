@@ -50,7 +50,11 @@ WANT="chrome chrome.exe chrome.dll chrome_elf.dll chrome_proxy.exe chrome_pwa_la
       notification_helper.exe elevation_service.exe eventlog_provider.dll chrome_wer.dll
       mojo_core.dll libEGL.dll libGLESv2.dll vk_swiftshader.dll vk_swiftshader_icd.json
       vulkan-1.dll resources.pak chrome_100_percent.pak chrome_200_percent.pak icudtl.dat
-      snapshot_blob.bin v8_context_snapshot.bin setup.exe mini_installer.exe"
+      snapshot_blob.bin v8_context_snapshot.bin setup.exe mini_installer.exe
+      chrome/browser/password_manager:password_manager_buildflags
+      components/password_manager/services/csv_password/public/mojom:mojom"
+# (The last two generate headers that chrome's sources include without a GN dependency on them;
+# a build of `all` happens to generate them first, a build of just these targets does not.)
 T=
 for t in $WANT; do
   ninja -C "$O" -t query "$t" >/dev/null 2>&1 && T="$T $t"
