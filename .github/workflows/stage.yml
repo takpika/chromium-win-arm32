@@ -123,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.flavor }}
-          path: /home/winrt/dist/*.zip
+          path: /home/winrt/dist/*
           retention-days: 14
           compression-level: 0
 

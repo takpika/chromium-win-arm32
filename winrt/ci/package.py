@@ -6,6 +6,7 @@ chromium -> chromium-<version>-win-arm32.zip: chrome-win/ with the files of Chro
 chrome   -> chrome-<version>-win-arm32.zip: Chrome-bin/ in the installed layout
             (chrome/installer/mini_installer/chrome.release): chrome.exe and chrome_proxy.exe
             next to the <version>/ directory holding everything else.
+Both     -> <name>-installer.exe: the flavor's mini_installer.exe.
 """
 import configparser, fnmatch, glob, os, shutil, sys, zipfile
 
@@ -68,6 +69,11 @@ def main():
         for h, a in sorted(have, key=lambda x: x[1]):
             z.write(h, a)
     print(f"{zpath}: {len(have)} files, {os.path.getsize(zpath) / 2**20:.1f} MiB")
+    inst = os.path.join(out, "mini_installer.exe")
+    if not os.path.isfile(inst):
+        sys.exit("mini_installer.exe was not built")
+    shutil.copyfile(inst, os.path.join(dest, name + "-installer.exe"))
+    print(f"{name}-installer.exe: {os.path.getsize(inst) / 2**20:.1f} MiB")
     for m in missing:
         print(f"  not built (skipped): {m}")
 

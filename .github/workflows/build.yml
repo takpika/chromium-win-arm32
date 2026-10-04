@@ -23,10 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            winrt
-            build/linux/sysroot_scripts
-            tools/clang
+          sparse-checkout: winrt
           fetch-depth: 1
       - id: key
         run: echo "key=sdk-${{ hashFiles('winrt/toolchains/**', 'winrt/ci/Dockerfile', 'winrt/ci/toolchain.sh') }}" >> "$GITHUB_OUTPUT"
@@ -41,6 +38,7 @@ jobs:
         uses: ./winrt/ci/image
       - if: steps.cache.outputs.cache-hit != 'true'
         run: |
+          winrt/ci/run checkout.sh "$GITHUB_SHA"
           winrt/ci/run toolchain.sh
           sudo chown -R "$(id -u):$(id -g)" /home/winrt
       - if: steps.cache.outputs.cache-hit != 'true'
@@ -119,13 +117,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file - <<EOF
           Chromium $(ls dist | sed -n 's/^chromium-\(.*\)-win-arm32.zip$/\1/p') for Windows on ARM32 (Windows RT 8.1 / Windows 11 on ARM, 32-bit ARM).
 
           - chromium-*-win-arm32.zip: Chromium layout (chrome-win/), open media codecs only.
           - chrome-*-win-arm32.zip: Chrome layout (Chrome-bin/), with H.264/AAC and the other proprietary codecs.
 
-          Unzip and run chrome.exe.
+          - *-installer.exe: installers of the two builds (install per user, like Chromium's mini_installer).
+
+          Zips: unzip and run chrome.exe.
           EOF
 

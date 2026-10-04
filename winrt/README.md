@@ -5,14 +5,14 @@ devices running ARM32 code (tested on Surface Pro X).
 
 ## Downloads
 
-Releases carry two zips:
+Releases carry two builds, each as a zip and as an installer (`<zip name>-installer.exe`):
 
 | file | layout | media codecs |
 |---|---|---|
 | `chromium-<version>-win-arm32.zip` | `chrome-win/`, flat (as Chromium snapshots) | open codecs (VP8/VP9/AV1, Opus, ...) |
 | `chrome-<version>-win-arm32.zip` | `Chrome-bin/` (`chrome.exe` + `<version>/`, as installed Chrome) | plus H.264, AAC and the other proprietary codecs |
 
-Unzip and run `chrome.exe`.
+Unzip and run `chrome.exe`, or run the installer (Chromium's `mini_installer`, per-user install).
 
 ## Layout of this branch
 

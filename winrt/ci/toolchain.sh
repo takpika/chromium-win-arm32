@@ -5,17 +5,16 @@
 #   xwin-10.0.22621    fetch_xwin_splat.sh (Windows SDK / MSVC CRT splat)
 #   winrt-sdk          build_winrt_sdk.sh
 #   winrt-crt          build_winrt_crt_runtimes.sh
-# Runs inside the builder image; /home/winrt/repo is a (sparse) checkout of this branch.
+# Runs inside the builder image after checkout.sh (the recipes use the Chromium tree: Chromium's
+# clang plugins from tools/clang, and a libaom NEON source for the CodeView self-test).
 set -euxo pipefail
 W=/home/winrt
 SDK=$W/sdk
-R=$W/repo
+R=$W/gc/src
 TC=$W/toolchains/win_mingw_fixes
 # The recipes run with the bootstrap toolchain on PATH, never a half-installed port toolchain.
 export PATH=/usr/local/bin:/opt/llvm-mingw/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-rm -rf "$W/toolchains"; cp -a "$R/winrt/toolchains" "$W/toolchains"
-ln -sfn "$R" "$W/chromium"          # tools/clang (Chromium's clang plugins)
 mkdir -p "$SDK/tools" "$SDK/src" "$SDK/sysroots" "$SDK/staging"
 
 for a in arm arm64; do

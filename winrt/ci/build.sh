@@ -43,12 +43,12 @@ else
   rm "$O/args.gn.new"
 fi
 
-# Everything the two archive layouts take (package.py), by output name.
+# Everything the two archive layouts and the installer take (package.py), by output name.
 WANT="chrome chrome.exe chrome.dll chrome_elf.dll chrome_proxy.exe chrome_pwa_launcher.exe
       notification_helper.exe elevation_service.exe eventlog_provider.dll chrome_wer.dll
       mojo_core.dll libEGL.dll libGLESv2.dll vk_swiftshader.dll vk_swiftshader_icd.json
       vulkan-1.dll resources.pak chrome_100_percent.pak chrome_200_percent.pak icudtl.dat
-      snapshot_blob.bin v8_context_snapshot.bin"
+      snapshot_blob.bin v8_context_snapshot.bin setup.exe mini_installer.exe"
 T=
 for t in $WANT; do
   ninja -C "$O" -t query "$t" >/dev/null 2>&1 && T="$T $t"

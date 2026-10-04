@@ -17,6 +17,24 @@ if [ ! -d "$DT" ]; then
   git -C "$DT" checkout -q "$(git -C "$DT" rev-list -1 --before=2023-01-20 origin/main)"
 fi
 
+# CIPD packages with no linux-arm64 build at Chromium 109's pins: reclient (not used) and the
+# host 7-Zip (installed below by winrt/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh).
+# gclient's custom_deps cannot drop CIPD entries, so a cipd wrapper leaves them out of `ensure`.
+mkdir -p "$W/bin"
+cat > "$W/bin/cipd" <<'EOF'
+#!/bin/bash
+args=("$@")
+for i in "${!args[@]}"; do
+  if [ "${args[$i]}" = -ensure-file ]; then
+    f=${args[$((i + 1))]}
+    sed -i -e '\#^infra/rbe/client/#d' -e '\#^infra/3pp/tools/7z/\${platform}#d' -e '\#^infra/3pp/tools/7z/linux-arm64#d' "$f"
+  fi
+done
+exec "$DT/cipd" "$@"
+EOF
+chmod +x "$W/bin/cipd"
+export PATH="$W/bin:$PATH" DT
+
 mkdir -p "$G"
 cat > "$G/.gclient" <<EOF
 solutions = [{
@@ -24,12 +42,7 @@ solutions = [{
   "url": "https://github.com/${GITHUB_REPOSITORY}.git@${COMMIT}",
   "deps_file": "DEPS",
   "managed": False,
-  # CIPD packages with no linux-arm64 build at Chromium 109's pins: reclient (not used) and the
-  # host 7-Zip (installed below from winrt/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh).
-  "custom_deps": {
-    "src/buildtools/reclient:infra/rbe/client/\${{platform}}": None,
-    "src/third_party/lzma_sdk/bin/host_platform:infra/3pp/tools/7z/\${{platform}}": None,
-  },
+  "custom_deps": {},
   "custom_vars": {"checkout_pgo_profiles": True},
 }]
 target_os = ["win"]
@@ -42,7 +55,23 @@ while read -r repo patch; do
   git -C "$S/$repo" apply --whitespace=nowarn "$S/winrt/patches/$patch"
 done < "$S/winrt/patches/series"
 
-gclient runhooks
+# Only the DEPS hooks the Windows build uses. The others fetch x86-64 host tools this host
+# cannot run (clang, node, rc, ciopfs, objdump: provided by winrt/toolchains and the builder
+# image instead), NaCl (no aarch64 host support), test data, or the sysroots (in the sdk cache).
+python3 - <<'EOF'
+import subprocess
+HOOKS = {"lastchange", "gpu_lists_version", "lastchange_skia", "lastchange_dawn",
+         "webui_node_modules", "Fetch PGO profiles for win32"}
+ns = {"Var": lambda x: "{%s}" % x, "Str": str}
+exec(open("src/DEPS").read(), ns)
+done = set()
+for h in ns["hooks"]:
+    if h.get("name") in HOOKS:
+        print("hook:", h["name"], flush=True)
+        subprocess.run(h["action"], check=True)
+        done.add(h["name"])
+assert done == HOOKS, HOOKS - done
+EOF
 
 rm -rf "$W/toolchains"; cp -a "$S/winrt/toolchains" "$W/toolchains"
 ln -sfn "$S" "$W/chromium"
