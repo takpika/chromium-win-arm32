@@ -53,16 +53,20 @@ WANT="chrome chrome.exe chrome.dll chrome_elf.dll chrome_proxy.exe chrome_pwa_la
       snapshot_blob.bin v8_context_snapshot.bin setup.exe mini_installer.exe"
 # Headers chrome's sources include without a GN dependency on their generators (a build of
 # `all` happens to generate them first); generated before everything else.
-FIRST="chrome/browser/password_manager:password_manager_buildflags
-       components/password_manager/services/csv_password/public/mojom:mojom"
+# Only the generated files themselves (their GN targets would also compile all their deps).
+FIRST="gen/chrome/browser/password_manager/password_manager_buildflags.h
+       gen/components/password_manager/services/csv_password/public/mojom/csv_password_parser.mojom.h"
 T=
 for t in $WANT; do
   ninja -C "$O" -t query "$t" >/dev/null 2>&1 && T="$T $t"
 done
 echo "targets:$T"
+END=$(( $(date +%s) + MINUTES * 60 ))
 ninja -C "$O" $FIRST
 set +e
-timeout --signal=INT --kill-after=10m "${MINUTES}m" ninja -k 0 -C "$O" $T
+left=$(( (END - $(date +%s)) / 60 ))
+[ "$left" -gt 0 ] || { echo "time is up; continuing in the next job"; exit 3; }
+timeout --signal=INT --kill-after=10m "${left}m" ninja -k 0 -C "$O" $T
 rc=$?
 set -e
 [ $rc -eq 124 ] && { echo "time is up; continuing in the next job"; exit 3; }
