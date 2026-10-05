@@ -1,0 +1,15 @@
+# Device-run staging of d8 (runtime claims of v8/src/codegen/arm/winrt-thumb-encoder.cc).
+# d8.exe alone cannot start: it reads its startup snapshot (snapshot_blob.bin,
+# v8_use_external_startup_data) and ICU data (icudtl.dat) from its own directory,
+# so a device claim's single ARTIFACT is this directory. Run with the build
+# directory after `ninja -C out/rewrite d8`:
+#   ninja -C out/rewrite -f /home/winrt/toolchains/win_mingw_fixes/d8_stage.ninja d8_stage
+
+rule cp
+  command = cp $in $out
+  description = STAGE $out
+
+build d8_stage/d8.exe: cp d8.exe
+build d8_stage/snapshot_blob.bin: cp snapshot_blob.bin
+build d8_stage/icudtl.dat: cp icudtl.dat
+build d8_stage: phony d8_stage/d8.exe d8_stage/snapshot_blob.bin d8_stage/icudtl.dat
