@@ -81,7 +81,9 @@ jobs:
           path: /home/winrt/xfer
 
       - name: Earlier run's output
+        id: earlier
         if: steps.resume.outputs.run != ''
+        continue-on-error: true      # expired: start from scratch
         uses: actions/download-artifact@v4
         with:
           name: out-${{ matrix.flavor }}-${{ steps.resume.outputs.stage }}
@@ -90,7 +92,7 @@ jobs:
           path: /home/winrt/xfer
 
       - name: Unpack previous stage output
-        if: steps.done.outcome != 'success' && (inputs.stage > 1 || steps.resume.outputs.run != '')
+        if: steps.done.outcome != 'success' && (inputs.stage > 1 || steps.earlier.outcome == 'success')
         run: |
           sudo mkdir -p /home/winrt/gc/src/out
           cat /home/winrt/xfer/out.tar.zst.* | sudo tar -I zstd -xf - -C /home/winrt/gc/src/out
