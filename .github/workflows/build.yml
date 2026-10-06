@@ -26,7 +26,7 @@ jobs:
           sparse-checkout: winrt
           fetch-depth: 1
       - id: key
-        run: echo "key=sdk-${{ hashFiles('winrt/toolchains/**', 'winrt/ci/Dockerfile', 'winrt/ci/toolchain.sh') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=sdk-${{ hashFiles('winrt/toolchains/**', 'winrt/ci/Dockerfile', 'winrt/ci/toolchain.sh', 'winrt/ci/toolchain-clang-ref') }}" >> "$GITHUB_OUTPUT"
       - run: sudo mkdir -p /home/winrt && sudo chown "$(id -u):$(id -g)" /home/winrt
       - id: cache
         uses: actions/cache/restore@v4
