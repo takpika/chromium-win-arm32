@@ -53,9 +53,11 @@ WANT="chrome chrome.exe chrome.dll chrome_elf.dll chrome_proxy.exe chrome_pwa_la
       snapshot_blob.bin v8_context_snapshot.bin setup.exe mini_installer.exe"
 # Headers chrome's sources include without a GN dependency on their generators (a build of
 # `all` happens to generate them first); generated before everything else.
-# Only the generated files themselves (their GN targets would also compile all their deps).
+# Only the generator steps (their GN targets would also compile all their deps).
+M=components/password_manager/services/csv_password/public/mojom
 FIRST="gen/chrome/browser/password_manager/password_manager_buildflags.h
-       gen/components/password_manager/services/csv_password/public/mojom/csv_password_parser.mojom.h"
+       phony/$M/mojom__generator phony/$M/mojom_shared__generator
+       gen/$M/csv_password_parser.mojom-shared-message-ids.h"
 T=
 for t in $WANT; do
   ninja -C "$O" -t query "$t" >/dev/null 2>&1 && T="$T $t"
