@@ -15,7 +15,7 @@ SRC = os.path.abspath(os.path.join(out, "..", ".."))
 ver = dict(l.strip().split("=") for l in open(os.path.join(SRC, "chrome/VERSION")) if "=" in l)
 VERSION = "{MAJOR}.{MINOR}.{BUILD}.{PATCH}".format(**ver)
 # Must be present; anything else listed by the layouts is taken when it was built.
-REQUIRED = {"chrome.exe", "chrome.dll", "chrome_elf.dll", "resources.pak", "icudtl.dat",
+REQUIRED = {"chrome.exe", "chrome.dll", "chrome_elf.dll", "resources.pak", "icudtl.dat", "snapshot_blob.bin",
             "chrome_100_percent.pak", "locales/en-US.pak", "libEGL.dll", "libGLESv2.dll"}
 SKIP = ("nacl", "WidevineCdm", "gcp_setup", "gaia1_0", "interactive_ui_tests")
 
@@ -44,7 +44,10 @@ def main():
     have, missing = [], []
     if flavor == "chromium":
         name, top = f"chromium-{VERSION}-win-arm32", "chrome-win"
-        for pat in files_cfg():
+        # FILES.cfg lists upstream's V8 startup data (v8_context_snapshot.bin) and a fixed locale
+        # list; this build uses snapshot_blob.bin, and ships every locale it built.
+        pats = [p for p in files_cfg() if not p.startswith("locales/")] + ["snapshot_blob.bin", "locales/*.pak"]
+        for pat in pats:
             hits = glob.glob(os.path.join(out, pat))
             if not hits:
                 missing.append(pat)
