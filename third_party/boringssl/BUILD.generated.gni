@@ -79,6 +79,7 @@ crypto_sources = [
   "src/crypto/cpu_aarch64_fuchsia.c",
   "src/crypto/cpu_aarch64_linux.c",
   "src/crypto/cpu_aarch64_win.c",
+  "win-arm/crypto/cpu_arm_win.c",
   "src/crypto/cpu_arm.c",
   "src/crypto/cpu_arm_linux.c",
   "src/crypto/cpu_arm_linux.h",
@@ -538,6 +539,22 @@ crypto_sources_linux_arm = [
   "linux-arm/crypto/test/trampoline-armv4.S",
   "src/crypto/curve25519/asm/x25519-asm-arm.S",
   "src/crypto/poly1305/poly1305_arm_asm.S",
+]
+
+crypto_sources_win_arm = [
+  "win-arm/crypto/chacha/chacha-armv4.S",
+  "win-arm/crypto/fipsmodule/aesv8-armx32.S",
+  "win-arm/crypto/fipsmodule/armv4-mont.S",
+  "win-arm/crypto/fipsmodule/bsaes-armv7.S",
+  "win-arm/crypto/fipsmodule/ghash-armv4.S",
+  "win-arm/crypto/fipsmodule/ghashv8-armx32.S",
+  "win-arm/crypto/fipsmodule/sha1-armv4-large.S",
+  "win-arm/crypto/fipsmodule/sha256-armv4.S",
+  "win-arm/crypto/fipsmodule/sha512-armv4.S",
+  "win-arm/crypto/fipsmodule/vpaes-armv7.S",
+  "win-arm/crypto/test/trampoline-armv4.S",
+  "win-arm/crypto/curve25519/asm/x25519-asm-arm.S",
+  "win-arm/crypto/poly1305/poly1305_arm_asm.S",
 ]
 
 crypto_sources_linux_ppc64le = [

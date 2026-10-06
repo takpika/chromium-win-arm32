@@ -63,18 +63,27 @@ template <>
 struct __declspec(uuid("0d82bd8d-fe62-5d67-a7b9-7886dd75bc4e")) IVector<Uri*>
     : IVector_impl<Internal::AggregateType<Uri*, IUriRuntimeClass*>> {};
 
+// Already declared (same IID) by headers that still ship it, e.g. mingw-w64's.
+#if !defined(____FIVectorView_1_Windows__CFoundation__CUri_INTERFACE_DEFINED__)
 template <>
 struct __declspec(uuid("4b8385bd-a2cd-5ff1-bf74-7ea580423e50"))
     IVectorView<Uri*>
     : IVectorView_impl<Internal::AggregateType<Uri*, IUriRuntimeClass*>> {};
+#endif
 
+// Already declared (same IID) by headers that still ship it, e.g. mingw-w64's.
+#if !defined(____FIIterator_1_Windows__CFoundation__CUri_INTERFACE_DEFINED__)
 template <>
 struct __declspec(uuid("1c157d0f-5efe-5cec-bbd6-0c6ce9af07a5")) IIterator<Uri*>
     : IIterator_impl<Internal::AggregateType<Uri*, IUriRuntimeClass*>> {};
+#endif
 
+// Already declared (same IID) by headers that still ship it, e.g. mingw-w64's.
+#if !defined(____FIIterable_1_Windows__CFoundation__CUri_INTERFACE_DEFINED__)
 template <>
 struct __declspec(uuid("b0d63b78-78ad-5e31-b6d8-e32a0e16c447")) IIterable<Uri*>
     : IIterable_impl<Internal::AggregateType<Uri*, IUriRuntimeClass*>> {};
+#endif
 #endif
 
 }  // namespace Collections

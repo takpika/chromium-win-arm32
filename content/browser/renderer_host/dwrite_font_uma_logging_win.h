@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_DWRITE_FONT_UMA_LOGGING_WIN_H_
 #define CONTENT_BROWSER_RENDERER_HOST_DWRITE_FONT_UMA_LOGGING_WIN_H_
 
+#include <cstddef>  // size_t (win-arm32/mingw does not get it transitively here)
+
 namespace content {
 
 // This enum is used to define the buckets for an enumerated UMA histogram.

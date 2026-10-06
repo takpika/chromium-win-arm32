@@ -35,7 +35,13 @@ bool HasBluetoothStack() {
     HRESULT hr = E_FAIL;
     __try {
       hr = __HrLoadAllImportsForDll("bthprops.cpl");
-    } __except(FilterVisualCPPExceptions(::GetExceptionCode())) {
+    } __except(FilterVisualCPPExceptions(GetExceptionCode())) {
+      // NB: unqualified GetExceptionCode() (dropped the redundant `::`). Under MSVC
+      // GetExceptionCode is a macro for the global _exception_code() intrinsic, so
+      // `::GetExceptionCode()` and `GetExceptionCode()` are identical; the win-arm32
+      // SEH shim (toolchains/win_mingw_fixes/excpt.h) defines GetExceptionCode() as a
+      // member access, which cannot be `::`-qualified — so the unqualified spelling is
+      // the single form that compiles under both toolchains.
       hr = E_FAIL;
     }
     has_bluetooth_stack = SUCCEEDED(hr) ? HBS_YES : HBS_NO;

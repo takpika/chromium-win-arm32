@@ -16,7 +16,15 @@
 #define CRASHPAD_COMPAT_WIN_TIME_H_
 
 // This is intended to be roughly equivalent to #include_next.
+// The original `#include <../ucrt/time.h>` assumes the MSVC Windows SDK layout
+// (um/ and ucrt/ siblings) and pulls the MSVC-style UCRT header, which is not
+// clang/mingw-parseable (SAL macros, angled <corecrt_wtime.h>). Under the
+// llvm-mingw toolchain use the real #include_next to get mingw's system time.h.
+#if defined(__MINGW32__)
+#include_next <time.h>
+#else
 #include <../ucrt/time.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {

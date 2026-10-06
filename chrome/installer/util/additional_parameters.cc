@@ -205,6 +205,8 @@ std::wstring GetChannelIdentifier(version_info::Channel channel,
   static constexpr base::WStringPiece kArchSuffix = L"-arch_x86";
 #elif defined(ARCH_CPU_ARM64)
   static constexpr base::WStringPiece kArchSuffix = L"-arch_arm64";
+#elif defined(ARCH_CPU_ARMEL)
+  static constexpr base::WStringPiece kArchSuffix = L"-arch_arm";
 #else
 #error unsupported processor architecture.
 #endif
@@ -242,6 +244,8 @@ std::wstring GetChannelIdentifier(version_info::Channel channel,
       return L"stable-arch_x86";
 #elif defined(ARCH_CPU_ARM64)
       return L"stable-arch_arm64";
+#elif defined(ARCH_CPU_ARMEL)
+      return L"stable-arch_arm";
 #else
 #error unsupported processor architecture.
 #endif

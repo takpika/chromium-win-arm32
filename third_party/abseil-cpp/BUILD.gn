@@ -116,6 +116,16 @@ group("default") {
 
 config("absl_include_config") {
   include_dirs = [ "." ]
+
+  if (is_win && target_cpu == "arm") {
+    # Windows on ARM32 compiles with llvm-mingw's clang (__MINGW32__), for
+    # which absl/base/internal/thread_identity.h picks pthread_setspecific; the
+    # build links Microsoft's C runtime, not MinGW's winpthreads, so use the
+    # mode the MSVC-built Windows targets use (C++11 thread_local). Public:
+    # every translation unit that includes thread_identity.h must see the same
+    # mode.
+    defines = [ "ABSL_FORCE_THREAD_IDENTITY_MODE=2" ]  # USE_CPP11
+  }
 }
 
 config("absl_define_config") {

@@ -194,6 +194,10 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   // Registers the output media type for the decoder.
   bool SetDecoderOutputMediaType(const GUID& subtype);
 
+  // Registers the first output media type the decoder accepts: NV12, P010 or
+  // P016, and on the Direct3D 9 path also YV12.
+  bool SetDecoderOutputMediaTypes();
+
   // Passes a command message to the decoder. This includes commands like
   // start of stream, end of stream, flush, drain the decoder, etc.
   bool SendMFTMessage(MFT_MESSAGE_TYPE msg, int32_t param);
@@ -426,6 +430,10 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   Microsoft::WRL::ComPtr<IDirectXVideoProcessorService>
       video_processor_service_;
   Microsoft::WRL::ComPtr<IDirectXVideoProcessor> processor_;
+  // Format of the decoder's output surfaces on the Direct3D 9 path; the
+  // DXVA2 video processor is created for it.
+  D3DFORMAT d3d9_output_format_ =
+      static_cast<D3DFORMAT>(MAKEFOURCC('N', 'V', '1', '2'));
   DXVA2_ProcAmpValues default_procamp_values_;
 
   // Ideally the reset token would be a stack variable which is used while

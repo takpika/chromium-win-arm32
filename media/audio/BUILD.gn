@@ -223,6 +223,12 @@ source_set("audio") {
 
     libs += [
       "dxguid.lib",
+      # win-arm32: KSDATAFORMAT_SUBTYPE_PCM / _IEEE_FLOAT (odr-used by
+      # audio_low_latency_{input,output}_win.cc + core_audio_util_win.cc) live in
+      # MSVC's ksuser.lib. mingw's <ks.h> declares them but their storage is in
+      # libksuser.a, which is not otherwise linked (mingw splits the KS GUIDs out
+      # of libstrmiids.a, unlike MSVC's strmiids.lib), so name them explicitly.
+      "ksuser.lib",
       "setupapi.lib",
       "winmm.lib",
     ]

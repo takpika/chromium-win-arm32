@@ -14,6 +14,14 @@
 #include "base/win/propvarutil.h"
 #include "base/win/variant_util.h"
 
+#if defined(__MINGW32__)
+// win-arm32 (llvm-mingw): mingw's <propvarutil.h> declares PropVariantCompareEx
+// but NOT VariantCompare (propsys.dll), which ScopedVariant::Compare() calls.
+// Supplement the Windows SDK declaration; propsys is already linked for the
+// base/win/propvarutil.h PropVariant* helpers. SAL annotations omitted (no-op).
+extern "C" int __stdcall VariantCompare(REFVARIANT var1, REFVARIANT var2);
+#endif
+
 namespace base {
 namespace win {
 
@@ -107,7 +115,10 @@ VARIANT* ScopedVariant::Receive() {
 
 VARIANT ScopedVariant::Copy() const {
   VARIANT ret = {{{VT_EMPTY}}};
-  ::VariantCopy(&ret, &var_);
+  // mingw's oleauto.h declares VariantCopy's source parameter non-const
+  // (VARIANTARG*), unlike the MSVC SDK which declares it const VARIANTARG* (the
+  // call does not modify the source). const_cast bridges that header difference.
+  ::VariantCopy(&ret, const_cast<VARIANT*>(&var_));
   return ret;
 }
 
@@ -285,7 +296,8 @@ void ScopedVariant::Set(SAFEARRAY* array) {
 
 void ScopedVariant::Set(const VARIANT& var) {
   DCHECK(!IsLeakableVarType(var_.vt)) << "leaking variant: " << var_.vt;
-  if (FAILED(::VariantCopy(&var_, &var))) {
+  // See Copy(): mingw's VariantCopy source param is non-const (const_cast is safe).
+  if (FAILED(::VariantCopy(&var_, const_cast<VARIANT*>(&var)))) {
     DLOG(ERROR) << "VariantCopy failed";
     var_.vt = VT_EMPTY;
   }

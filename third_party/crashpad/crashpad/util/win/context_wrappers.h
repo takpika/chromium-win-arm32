@@ -30,6 +30,8 @@ inline void* ProgramCounterFromCONTEXT(const CONTEXT* context) {
   return reinterpret_cast<void*>(context->Rip);
 #elif defined(ARCH_CPU_ARM64)
   return reinterpret_cast<void*>(context->Pc);
+#elif defined(ARCH_CPU_ARMEL)
+  return reinterpret_cast<void*>(context->Pc);
 #else
 #error Unsupported Windows Arch
 #endif  // ARCH_CPU_X86

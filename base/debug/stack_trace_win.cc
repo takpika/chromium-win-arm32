@@ -366,6 +366,11 @@ void StackTrace::InitTrace(const CONTEXT* context_record) {
   stack_frame.AddrPC.Offset = context_record->Eip;
   stack_frame.AddrFrame.Offset = context_record->Ebp;
   stack_frame.AddrStack.Offset = context_record->Esp;
+#elif defined(ARCH_CPU_ARM_FAMILY)  // 32-bit ARM (arm64 handled above)
+  DWORD machine_type = IMAGE_FILE_MACHINE_ARMNT;
+  stack_frame.AddrPC.Offset = context_record->Pc;
+  stack_frame.AddrFrame.Offset = context_record->R11;
+  stack_frame.AddrStack.Offset = context_record->Sp;
 #else
 #error Unsupported Windows Arch
 #endif

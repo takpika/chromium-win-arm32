@@ -28,7 +28,7 @@ constexpr int kCPUUsageHistogramBucketCount = 50;
 
 #if BUILDFLAG(IS_WIN)
 bool HasConstantRateTSC() {
-#if defined(ARCH_CPU_ARM64)
+#if defined(ARCH_CPU_ARM_FAMILY)
   // Constant rate TSC is never support on Arm CPUs.
   return false;
 #else

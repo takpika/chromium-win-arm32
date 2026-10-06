@@ -15,7 +15,7 @@
 #include "base/check.h"
 #include "build/build_config.h"
 
-#if defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
 #include <malloc.h>
 #else
 #include <stdlib.h>
@@ -41,7 +41,7 @@ namespace base {
 BASE_EXPORT void* AlignedAlloc(size_t size, size_t alignment);
 
 inline void AlignedFree(void* ptr) {
-#if defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
   _aligned_free(ptr);
 #else
   free(ptr);

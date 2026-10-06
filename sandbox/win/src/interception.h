@@ -227,7 +227,11 @@ class InterceptionManager {
 // Note that num_params is the number of bytes to pop out of the stack for
 // the exported interceptor, following the calling convention of a service call
 // (WINAPI = with the "C" underscore).
-#if defined(_WIN64)
+// win-arm32 (__arm__) registers the Target*64 interceptors, like the 64-bit
+// targets: its bare jump-to-interceptor thunk cannot inject original_function as
+// the first argument (impossible on AAPCS), so it relies on the g_originals[]
+// lookup that the Target*64 wrappers perform. See interceptors.h + BUILD.gn.
+#if defined(_WIN64) || defined(__arm__)
 #define MAKE_SERVICE_NAME(service) &Target##service##64
 #else
 #define MAKE_SERVICE_NAME(service) &Target##service

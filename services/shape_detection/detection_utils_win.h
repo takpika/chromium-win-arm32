@@ -5,6 +5,10 @@
 #ifndef SERVICES_SHAPE_DETECTION_DETECTION_UTILS_WIN_H_
 #define SERVICES_SHAPE_DETECTION_DETECTION_UTILS_WIN_H_
 
+#include <windows.graphics.imaging.h>  // win-arm32 (IWYU): this header names ABI::Windows::
+                                       // Graphics::Imaging::ISoftwareBitmap[Statics] /
+                                       // BitmapPixelFormat but did not include their header;
+                                       // the SDK build had it transitively, mingw does not.
 #include <windows.storage.streams.h>
 #include <wrl/client.h>
 

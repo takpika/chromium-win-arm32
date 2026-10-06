@@ -41,6 +41,12 @@ source_set("device_monitors") {
       "system_message_window_win.cc",
       "system_message_window_win.h",
     ]
+
+    # win-arm32: KSCATEGORY_AUDIO / KSCATEGORY_VIDEO (odr-used by
+    # system_message_window_win.cc for device-notification registration) live in
+    # MSVC's ksuser.lib; mingw declares them in <ks.h> but their storage is in
+    # libksuser.a, not otherwise linked. Name it explicitly.
+    libs = [ "ksuser.lib" ]
   }
 }
 

@@ -104,7 +104,7 @@
 #endif
 
 // Restore macro that may have been #undef'd in port_def.inc.
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW32__)  // win-arm32: match port_def.inc
 #pragma pop_macro("CREATE_NEW")
 #pragma pop_macro("DELETE")
 #pragma pop_macro("DOUBLE_CLICK")

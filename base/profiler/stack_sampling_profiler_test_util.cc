@@ -38,7 +38,9 @@
 // Windows doesn't provide an alloca function like Linux does.
 // Fortunately, it provides _alloca, which functions identically.
 #include <malloc.h>
+#if !defined(alloca)  // mingw-w64's <malloc.h> already defines it.
 #define alloca _alloca
+#endif
 #else
 #include <alloca.h>
 #endif

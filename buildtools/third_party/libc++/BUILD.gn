@@ -28,6 +28,16 @@ config("config") {
   }
 
   defines = [ "_LIBCPP_BUILDING_LIBRARY" ]
+
+  if (is_win && target_cpu == "arm") {
+    # Windows on ARM32 builds libc++ with libc++abi (Itanium C++ ABI; see the libc++ target);
+    # libc++abi's headers come from //build/config/c++:runtime_library.
+    # /EHc- after //build/config/compiler:exceptions' /EHsc: with 'c' clang-cl assumes that
+    # extern "C" functions never throw (MSVC's semantics), but libc++abi's extern "C" __cxa_*
+    # functions throw by design in the Itanium ABI (__cxa_bad_cast, __cxa_throw_bad_array_new_length,
+    # ...), as they may under the -fexceptions every non-Windows build of it uses.
+    cflags_cc += [ "/EHc-" ]
+  }
 }
 
 # Explicitly set version macros to Windows 7 to prevent libc++ from adding a
@@ -209,6 +219,13 @@ target(_libcxx_target_type, "libc++") {
     if (!export_libcxxabi_from_executables) {
       deps = [ "//buildtools/third_party/libc++abi" ]
     }
+  } else if (target_cpu == "arm") {
+    # Windows on ARM32 (and its x64 helper toolchain) compiles with llvm-mingw's clang for a
+    # *-w64-windows-gnu triple, i.e. the Itanium C++ ABI, not MSVC's (_LIBCPP_ABI_MICROSOFT is
+    # unset), so libc++ pairs with the in-tree libc++abi exactly as on the non-Windows
+    # (Itanium-ABI) platforms above; its headers come from //build/config/c++:runtime_library.
+    defines += [ "LIBCXX_BUILDING_LIBCXXABI" ]
+    deps = [ "//buildtools/third_party/libc++abi" ]
   }
 
   if (!is_debug) {

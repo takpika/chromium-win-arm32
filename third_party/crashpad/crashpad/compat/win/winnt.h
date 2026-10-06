@@ -16,7 +16,15 @@
 #define CRASHPAD_COMPAT_WIN_WINNT_H_
 
 // include_next <winnt.h>
+#if defined(__MINGW32__)
+// llvm-mingw: chain to mingw's real <winnt.h> (the `../um/` form assumes the MSVC
+// SDK layout and pulls MSVC/xwin headers that are not clang-parseable and,
+// mixed into an otherwise-mingw TU, drag in un-no-op'd SAL/kernel annotation
+// macros. Matches the existing compat/win/winternl.h + time.h fix.)
+#include_next <winnt.h>
+#else
 #include <../um/winnt.h>
+#endif
 
 // https://msdn.microsoft.com/library/aa373184.aspx: "Note that this structure
 // definition was accidentally omitted from WinNT.h."

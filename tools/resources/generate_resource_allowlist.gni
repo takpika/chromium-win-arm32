@@ -17,6 +17,9 @@
 #     input = "$root_out_dir/lib.unstripped/libmy_shared_lib$shlib_extension"
 #     output = "$target_gen_dir/pak_allowlist.txt"
 #   }
+
+import("//build/config/clang/clang.gni")
+
 template("generate_resource_allowlist") {
   action(target_name) {
     forward_variables_from(invoker,
@@ -30,6 +33,8 @@ template("generate_resource_allowlist") {
     outputs = [ invoker.output ]
 
     args = [
+      "--llvm-bindir",
+      rebase_path("$clang_base_path/bin", root_build_dir),
       "-o",
       rebase_path(invoker.output, root_build_dir),
     ]

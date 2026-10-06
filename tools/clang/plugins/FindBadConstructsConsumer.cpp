@@ -21,8 +21,6 @@ namespace {
 // any namespace qualifiers. This is similar to desugaring, except that for
 // ElaboratedTypes, desugar will unwrap too much.
 const Type* UnwrapType(const Type* type) {
-  if (const ElaboratedType* elaborated = dyn_cast<ElaboratedType>(type))
-    return UnwrapType(elaborated->getNamedType().getTypePtr());
   if (const TypedefType* typedefed = dyn_cast<TypedefType>(type))
     return UnwrapType(typedefed->desugar().getTypePtr());
   return type;
@@ -379,14 +377,16 @@ void FindBadConstructsConsumer::CheckCtorDtorWeight(
 
   // Count the number of templated base classes as a feature of whether the
   // destructor can be inlined.
+  //
+  // This tree's checks were calibrated with its own clang
+  // (tools/clang/scripts/update.py: llvmorg-16-init-6578-g0d30e92f), where
+  // every type written in a base-specifier, qualified or bare, is an
+  // ElaboratedTypeLoc (types written bare got ElaboratedType sugar in
+  // llvm-project 15f3cd6bfc67), so the TypeLoc::TemplateSpecialization test
+  // that counted them never matched and templated bases never added to the
+  // score. clang 22 removed ElaboratedType, which would make that test match;
+  // it is not applied, so the score stays the one this tree passes.
   int templated_base_classes = 0;
-  for (CXXRecordDecl::base_class_const_iterator it = record->bases_begin();
-       it != record->bases_end(); ++it) {
-    if (it->getTypeSourceInfo()->getTypeLoc().getTypeLocClass() ==
-        TypeLoc::TemplateSpecialization) {
-      ++templated_base_classes;
-    }
-  }
 
   // Count the number of trivial and non-trivial member variables.
   int trivial_member = 0;
@@ -793,17 +793,6 @@ FindBadConstructsConsumer::ClassifyType(const Type* type) {
                                          .getTypePtr();
       return ClassifyType(subst_type);
     }
-    case Type::Elaborated: {
-      // Quote from the LLVM documentation:
-      // "Represents a type that was referred to using an elaborated type
-      // keyword, e.g., struct S, or via a qualified name, e.g., N::M::type, or
-      // both. This type is used to keep track of a type name as written in the
-      // source code, including tag keywords and any nested-name-specifiers. The
-      // type itself is always "sugar", used to express what was written in the
-      // source code but containing no additional semantic information."
-      return ClassifyType(
-          dyn_cast<ElaboratedType>(type)->getNamedType().getTypePtr());
-    }
     case Type::Typedef: {
       // A "typedef type" is the representation of a type named through a
       // typedef (or a C++11 type alias). In this case, we don't care about the
@@ -1056,7 +1045,10 @@ void FindBadConstructsConsumer::CheckWeakPtrFactoryMembers(
           // owning class.
           const TemplateArgument& arg = template_spec_type->getArg(0);
           if (arg.getAsType().getTypePtr()->getAsCXXRecordDecl() ==
-              record->getTypeForDecl()->getAsCXXRecordDecl()) {
+              instance()
+                  .getASTContext()
+                  .getCanonicalTagType(record)
+                  ->getAsCXXRecordDecl()) {
             if (!weak_ptr_factory_location.isValid()) {
               // Save the first matching WeakPtrFactory member for the
               // diagnostic.

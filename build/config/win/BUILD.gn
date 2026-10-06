@@ -62,6 +62,17 @@ config("compiler") {
       "/safeseh",
     ]
   }
+  if (current_cpu == "arm") {
+    asmflags = [
+      # Windows on ARM32 runs Thumb-2 only, so GNU-syntax .S files are assembled
+      # in Thumb state. Assembly written for ARM state (e.g. WebRTC's
+      # common_audio/isac kernels, which Linux assembles with the ARM-state
+      # default) uses conditional instructions without IT blocks; let the
+      # assembler insert them. Files that already carry their IT blocks
+      # assemble byte-identically with or without this flag.
+      "-mimplicit-it=always",
+    ]
+  }
 
   cflags = [
     "/Gy",  # Enable function-level linking.
@@ -108,6 +119,84 @@ config("compiler") {
       ]
     }
 
+    if (target_cpu == "arm") {
+      # A Windows on ARM32 build (its arm toolchain and the x64 helper
+      # toolchain for courgette64) compiles with llvm-mingw's clang-cl for a
+      # *-w64-windows-gnu triple; there is no MSVC toolchain for ARM32.
+      # The C runtime is Microsoft's static CRT, as /MT gives upstream (see
+      # toolchain.gni): -D_CRTIMP= -D_SECIMP= make mingw-w64's headers declare
+      # CRT functions without dllimport (the switch mingw-w64 itself uses when
+      # building its CRT; MSVC's headers do the same for /MT), and
+      # -fuse-init-array puts static constructors in the Microsoft CRT's
+      # .CRT$XCU table instead of MinGW's .ctors.
+      # -D__USE_MINGW_ANSI_STDIO=0: mingw-w64's <stdio.h> otherwise turns printf
+      # and friends into its own __mingw_* implementations (libmingwex, part of
+      # MinGW's runtime, not linked here) whenever a file defines
+      # _GNU_SOURCE/_POSIX_C_SOURCE/_XOPEN_SOURCE; this build's printf is the
+      # Microsoft UCRT's, which is C99-conformant (mingw-w64 itself leaves the
+      # switch off for UCRT in C99/C++11 mode).
+      # --no-default-config: llvm-mingw's per-triple driver config files carry
+      # the GNU driver's runtime selection (-rtlib, -unwindlib, -stdlib, -fuse-ld)
+      # that clang-cl rejects; the link states the runtimes itself
+      # (toolchain.gni), and C++ headers come from Chromium's libc++
+      # (build/config/c++: its include dir is an -I path, searched before any
+      # toolchain header directory).
+      # -fms-extensions restores the MSVC keywords (e.g. __int64 in
+      # base/win/windows_types.h) that clang drops on a -gnu triple.
+      # -fms-compatibility adds the MSVC-environment parsing rules that ATL's
+      # headers rely on (implicit function-pointer to void* conversions in
+      # atlbase.h/atlcom.h/atlstdthunk.h) and that clang-cl applies by default
+      # to an MSVC target. It does not define _MSC_VER here; it would drop
+      # other predefined macros, so -fgnuc-version=4.2.1 (clang's default for a
+      # -gnu triple) keeps __GNUC__ and its family, and __STRICT_ANSI__ and
+      # __STDC__ are restored explicitly. The driver also turns on -fwrapv with
+      # -fms-compatibility; /clang:-fno-wrapv keeps signed overflow as this
+      # build has always compiled it (Chromium's non-MSVC platforms do not use
+      # -fwrapv), so the mode changes parsing only.
+      # -fno-strict-aliasing: Chromium never compiles with type-based alias
+      # analysis -- on Windows the MSVC environment's default is off, and every
+      # other platform passes -fno-strict-aliasing (build/config/compiler,
+      # crbug.com/32204); a -gnu triple would otherwise turn it on.
+      # Header search order: the port's header fix-ups and verbatim SDK
+      # headers, then llvm-mingw's headers (one header tree,
+      # generic-w64-mingw32/include, for every mingw arch), then the Windows
+      # SDK and last ATL's include directory (-idirafter): they only supply
+      # what mingw-w64 lacks. The Microsoft C runtime's include directory is
+      # not on the path: its C and C++ runtime headers are for the MSVC
+      # environment (e.g. <stdatomic.h>, which clang's own <stdatomic.h>
+      # includes next whenever _MSC_VER is undefined); this build's C headers
+      # are mingw-w64's and its C++ library is libc++.
+      _winrt_mingw_cflags = [
+        "--no-default-config",
+        "-fms-extensions",
+        "-fms-compatibility",
+        "-fgnuc-version=4.2.1",
+        "-D__STRICT_ANSI__=1",
+        "-D__STDC__=1",
+        "/clang:-fno-wrapv",
+        "/clang:-fno-strict-aliasing",
+        "/clang:-fuse-init-array",
+        "-D_CRTIMP=",
+        "-D_SECIMP=",
+        # ATL (atlmfc/include) takes two settings from an MSVC environment:
+        # _VCRTIMP from vcruntime.h (not on this build's path), which defines it
+        # as _CRTIMP when that is defined (vcruntime.h:122-124), i.e. empty here;
+        # and __declspec(novtable) via ATL_NO_VTABLE, an MSVC C++ ABI attribute
+        # the Itanium ABI of a -gnu triple lacks (clang: "not supported",
+        # fatal under /WX), which ATL's own switch _ATL_DISABLE_NO_VTABLE turns
+        # off (atldef.h:338-342).
+        "-D_VCRTIMP=",
+        "-D_ATL_DISABLE_NO_VTABLE",
+        "-D__USE_MINGW_ANSI_STDIO=0",
+        "/clang:-isystem" + win_mingw_fixes_dir,
+        "/clang:-isystem" + win_sdk_supplement_dir,
+        "/clang:-idirafter" + win_sdk_splat_dir + "/sdk/include/um",
+        "/clang:-idirafter" + win_sdk_splat_dir + "/sdk/include/shared",
+        "/clang:-idirafter" + win_sdk_splat_dir + "/sdk/include/winrt",
+        "/clang:-idirafter" + win_sdk_splat_dir + "/atlmfc/include",
+      ]
+    }
+
     if (current_cpu == "x86") {
       if (host_cpu == "x86" || host_cpu == "x64") {
         cflags += [ "-m32" ]
@@ -115,13 +204,26 @@ config("compiler") {
         cflags += [ "--target=i386-windows" ]
       }
     } else if (current_cpu == "x64") {
-      if (host_cpu == "x86" || host_cpu == "x64") {
+      if (target_cpu == "arm") {
+        # -mlong-double-64: long double as on every Windows target Chromium
+        # builds (MSVC: 64 bits) and as Microsoft's CRT, which this toolchain
+        # links, implements it; the x86_64-w64-windows-gnu default is x87's 80
+        # bits, which the CRT's long double functions and printf's %Lf do not
+        # take. mingw-w64's headers and CRT aliases follow it
+        # (__SIZEOF_LONG_DOUBLE__), as on arm32, where it is 64 bits anyway.
+        cflags += [
+                    "--target=x86_64-w64-windows-gnu",
+                    "/clang:-mlong-double-64",
+                  ] + _winrt_mingw_cflags
+      } else if (host_cpu == "x86" || host_cpu == "x64") {
         cflags += [ "-m64" ]
       } else {
         cflags += [ "--target=x86_64-windows" ]
       }
     } else if (current_cpu == "arm64") {
       cflags += [ "--target=arm64-windows" ]
+    } else if (current_cpu == "arm") {
+      cflags += [ "--target=armv7-w64-windows-gnu" ] + _winrt_mingw_cflags
     } else {
       assert(false, "unknown current_cpu " + current_cpu)
     }

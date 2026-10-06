@@ -6,6 +6,13 @@
 #define DEVICE_BLUETOOTH_BLUETOOTH_ADAPTER_WINRT_H_
 
 #include <windows.devices.bluetooth.h>
+// win-arm32 (IWYU): this header names ABI::...::Bluetooth::Advertisement::
+// IBluetoothLEAdvertisementWatcher / ...ReceivedEventArgs / ...WatcherStoppedEventArgs in
+// member declarations but did not include their header. On the SDK build this compiled only
+// because Advertisement was transitively visible; the SDK's windows.devices.bluetooth.idl
+// does NOT import Advertisement (verified: xwin bluetooth.h has 0 Advertisement decls), and
+// llvm-mingw likewise does not, so own-header-first parsing fails without this include.
+#include <windows.devices.bluetooth.advertisement.h>
 #include <windows.devices.enumeration.h>
 #include <windows.devices.radios.h>
 #include <wrl/client.h>

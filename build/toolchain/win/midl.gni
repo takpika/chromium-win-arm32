@@ -148,6 +148,9 @@ template("midl") {
     if (current_cpu == "x86") {
       win_tool_arch = "environment.x86"
       idl_target_platform = "win32"
+    } else if (current_cpu == "arm") {
+      win_tool_arch = "environment.arm"
+      idl_target_platform = "arm32"
     } else if (current_cpu == "x64") {
       win_tool_arch = "environment.x64"
       idl_target_platform = "x64"

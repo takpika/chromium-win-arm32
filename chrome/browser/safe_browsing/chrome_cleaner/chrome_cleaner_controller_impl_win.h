@@ -22,6 +22,10 @@
 #include "components/component_updater/component_updater_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+namespace component_updater {
+class SwReporterOnDemandFetcher;
+}  // namespace component_updater
+
 namespace safe_browsing {
 
 // Delegate class that provides services to the ChromeCleanerController class

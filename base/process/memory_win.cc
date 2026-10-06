@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include <new>
+
 #if defined(__clang__)
 // This global constructor is trivial and non-racy (per being const).
 #pragma clang diagnostic push
@@ -40,6 +42,7 @@ namespace base {
 
 namespace {
 
+#if defined(_LIBCPP_ABI_VCRUNTIME)
 // Return a non-0 value to retry the allocation.
 int ReleaseReservationOrTerminate(size_t size) {
   constexpr int kRetryAllocation = 1;
@@ -48,6 +51,17 @@ int ReleaseReservationOrTerminate(size_t size) {
   TerminateBecauseOutOfMemory(size);
   return 0;
 }
+#else
+// Without vcruntime (libc++ over the Itanium C++ ABI's libc++abi, as in a
+// *-windows-gnu build) std::set_new_handler() does not reach the CRT's
+// _set_new_handler() slot; there the C++ new handler is the only one, and the
+// allocator shim calls it (winheap_stubs_win.cc), as on Linux.
+void ReleaseReservationOrTerminate() {
+  if (internal::ReleaseAddressSpaceReservation())
+    return;
+  TerminateBecauseOutOfMemory(0);
+}
+#endif
 
 }  // namespace
 
@@ -58,7 +72,11 @@ void EnableTerminationOnHeapCorruption() {
 
 void EnableTerminationOnOutOfMemory() {
   constexpr int kCallNewHandlerOnAllocationFailure = 1;
+#if defined(_LIBCPP_ABI_VCRUNTIME)
   _set_new_handler(&ReleaseReservationOrTerminate);
+#else
+  std::set_new_handler(&ReleaseReservationOrTerminate);
+#endif
   _set_new_mode(kCallNewHandlerOnAllocationFailure);
 }
 

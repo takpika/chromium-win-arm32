@@ -147,11 +147,17 @@ bool CSSNumericLiteralValue::IsComputationallyIndependent() const {
 }
 
 static String FormatNumber(double number, const char* suffix) {
-#if BUILDFLAG(IS_WIN) && _MSC_VER < 1900
+// This forces two-digit float exponents on the pre-UCRT MSVC CRT (which defaulted to three
+// digits); it is needed ONLY on actual old MSVC. win-arm32/llvm-mingw uses the UCRT (which,
+// like VS2015+, already emits two-digit exponents) and defines no _MSC_VER, so `_MSC_VER < 1900`
+// was 0<1900=true and pulled _set_output_format/_TWO_DIGIT_EXPONENT -- both absent from the UCRT
+// (mingw stdio.h fences them out under UCRT). Gate on defined(_MSC_VER) so the block is old-MSVC
+// only; mingw-UCRT skips it and gets the same two-digit output natively.
+#if BUILDFLAG(IS_WIN) && defined(_MSC_VER) && _MSC_VER < 1900
   unsigned oldFormat = _set_output_format(_TWO_DIGIT_EXPONENT);
 #endif
   String result = String::Format("%.6g%s", number, suffix);
-#if BUILDFLAG(IS_WIN) && _MSC_VER < 1900
+#if BUILDFLAG(IS_WIN) && defined(_MSC_VER) && _MSC_VER < 1900
   _set_output_format(oldFormat);
 #endif
   return result;

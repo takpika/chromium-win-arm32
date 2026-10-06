@@ -16,7 +16,17 @@
 #define CRASHPAD_COMPAT_WIN_WINTERNL_H_
 
 // include_next <winternl.h>
+// The original `#include <../um/winternl.h>` assumes the MSVC Windows-SDK layout (um/ and ucrt/
+// as siblings) and pulls the MSVC-style SDK header, which is not clang/mingw-
+// parseable and (mixed into an otherwise-mingw TU) collides with mingw's own
+// winternl.h (SAL/driver-spec types, _OFF_T_DEFINED guard). Under llvm-mingw use the
+// real #include_next to chain to mingw's system header instead. Matches the
+// existing fix in compat/win/time.h.
+#if defined(__MINGW32__)
+#include_next <winternl.h>
+#else
 #include <../um/winternl.h>
+#endif
 
 // 10.0.16299.0 SDK
 

@@ -63,6 +63,8 @@ constexpr base::FilePath::CharType kSodaIndicatorFile[] =
     FILE_PATH_LITERAL("SODAFiles/arch_x64");
 #elif defined(ARCH_CPU_ARM64)
     FILE_PATH_LITERAL("SODAFiles/arch_arm64");
+#elif defined(ARCH_CPU_ARMEL)
+    FILE_PATH_LITERAL("SODAFiles/arch_arm");
 #else
     {};
 #endif

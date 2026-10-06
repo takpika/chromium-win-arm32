@@ -538,7 +538,7 @@ struct FunctorTraits<R (*)(Args...)> {
   }
 };
 
-#if BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_64_BITS)
+#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86)
 
 // For functions.
 template <typename R, typename... Args>
@@ -570,7 +570,7 @@ struct FunctorTraits<R(__fastcall*)(Args...)> {
   }
 };
 
-#endif  // BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_64_BITS)
+#endif  // BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86)
 
 #if BUILDFLAG(IS_APPLE)
 
@@ -665,7 +665,7 @@ struct FunctorTraits<R (Receiver::*)(Args...) const> {
   }
 };
 
-#if BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_64_BITS)
+#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86)
 
 // For __stdcall methods.
 template <typename R, typename Receiver, typename... Args>
@@ -701,7 +701,7 @@ struct FunctorTraits<R (__stdcall Receiver::*)(Args...) const> {
   }
 };
 
-#endif  // BUILDFLAG(IS_WIN) && !defined(ARCH_CPU_64_BITS)
+#endif  // BUILDFLAG(IS_WIN) && defined(ARCH_CPU_X86)
 
 #ifdef __cpp_noexcept_function_type
 // noexcept makes a distinct function type in C++17.

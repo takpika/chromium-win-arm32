@@ -29,7 +29,7 @@ namespace internal {
 
 namespace {
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARMEL)
 #if defined(ARCH_CPU_32_BITS)
 using Context32 = CONTEXT;
 #elif defined(ARCH_CPU_64_BITS)
@@ -39,11 +39,20 @@ using Context32 = WOW64_CONTEXT;
 void NativeContextToCPUContext32(const Context32* context_record,
                                  CPUContext* context,
                                  CPUContextUnion* context_union) {
+#if defined(ARCH_CPU_X86_FAMILY)
   context->architecture = kCPUArchitectureX86;
   context->x86 = &context_union->x86;
   InitializeX86Context(context_record, context->x86);
+#elif defined(ARCH_CPU_ARMEL)
+  // win-arm32: the 32-bit native context IS the full CONTEXT (no WoW64 sub-arch
+  // split — the process is natively 32-bit ARM), so this path handles the arm32
+  // case that the caller's ARCH_CPU_32_BITS branch dispatches to.
+  context->architecture = kCPUArchitectureARM;
+  context->arm = &context_union->arm;
+  InitializeARMContext(context_record, context->arm);
+#endif
 }
-#endif  // ARCH_CPU_X86_FAMILY
+#endif  // ARCH_CPU_X86_FAMILY || ARCH_CPU_ARMEL
 
 #if defined(ARCH_CPU_64_BITS)
 void NativeContextToCPUContext64(const CONTEXT* context_record,

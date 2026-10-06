@@ -2736,6 +2736,13 @@ source_set("browser") {
       "imm32.lib",
       "oleacc.lib",
       "portabledeviceguids.lib",
+      # win-arm32: CLSID_SpVoice / CLSID_SpObjectTokenCategory (odr-used by
+      # speech/tts_win.cc) live in MSVC's sapi.lib, which the SDK <sapi.h> pulls
+      # via `#pragma comment(lib, "sapi.lib")`. mingw's <sapi.h> drops that pragma
+      # (and the clang-cl wrapper does not emit user #pragma comment(lib) into
+      # .drectve), so name sapi.lib explicitly; mingw ships its storage in
+      # libsapi.a.
+      "sapi.lib",
       "uiautomationcore.lib",
       "wtsapi32.lib",
     ]

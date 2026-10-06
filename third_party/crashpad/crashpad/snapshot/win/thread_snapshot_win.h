@@ -81,6 +81,8 @@ class ThreadSnapshotWin final : public ThreadSnapshot {
     CPUContextX86_64 x86_64;
 #elif defined(ARCH_CPU_ARM64)
     CPUContextARM64 arm64;
+#elif defined(ARCH_CPU_ARMEL)
+    CPUContextARM arm;
 #else
 #error Unsupported Windows Arch
 #endif

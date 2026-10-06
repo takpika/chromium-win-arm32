@@ -46,7 +46,9 @@ void PlatformThreadLocalStorage::SetTLSValue(TLSKey key, void* value) {
 // if it's not already there.  (e.g. if __declspec(thread) is not used).
 // Force a reference to p_thread_callback_base to prevent whole program
 // optimization from discarding the variable.
-#ifdef _WIN64
+// win-arm32: 32-bit but undecorated COFF symbols (like x64/arm64), so it belongs
+// in the _WIN64 (no-underscore) branch, not the x86-32 leading-underscore branch.
+#if defined(_WIN64) || defined(_M_ARM) || defined(__arm__)
 
 #pragma comment(linker, "/INCLUDE:_tls_used")
 #pragma comment(linker, "/INCLUDE:p_thread_callback_base")
@@ -83,7 +85,7 @@ extern "C" {
 // The linker must not discard p_thread_callback_base.  (We force a reference
 // to this variable with a linker /INCLUDE:symbol pragma to ensure that.) If
 // this variable is discarded, the OnThreadExit function will never be called.
-#ifdef _WIN64
+#if defined(_WIN64) || defined(_M_ARM) || defined(__arm__)
 
 // .CRT section is merged with .rdata on x64 so it must be constant data.
 #pragma const_seg(".CRT$XLB")

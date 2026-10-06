@@ -1,0 +1,32 @@
+diff --git a/src/opts/SkRasterPipeline_opts.h b/src/opts/SkRasterPipeline_opts.h
+index e5de7542bab40f002ea00dcd038bdee5071bdb9a..208aa12f5fc3a81a90250332f1384cede8dfff20 100644
+--- a/src/opts/SkRasterPipeline_opts.h
++++ b/src/opts/SkRasterPipeline_opts.h
+@@ -1050,7 +1050,13 @@ static const size_t N = sizeof(F) / sizeof(float);
+ #if defined(SK_CPU_ARM32) && defined(JUMPER_IS_NEON)
+     // This lets us pass vectors more efficiently on 32-bit ARM.
+     // We can still only pass 16 floats, so best as 4x {r,g,b,a}.
+-    #define ABI __attribute__((pcs("aapcs-vfp")))
++    #if defined(_WIN32)
++        // Windows on ARM already passes floats and vectors this way (and
++        // clang does not accept a pcs attribute there).
++        #define ABI
++    #else
++        #define ABI __attribute__((pcs("aapcs-vfp")))
++    #endif
+     #define JUMPER_NARROW_STAGES 1
+ #elif defined(_MSC_VER)
+     // Even if not vectorized, this lets us pass {r,g,b,a} as registers,
+diff --git a/src/ports/SkFontHost_win.cpp b/src/ports/SkFontHost_win.cpp
+index 90c64a4bc2fbdec7561f1993ec208fc8e30260f3..a2a738c856b01d079397e036a97d11571f68045f 100644
+--- a/src/ports/SkFontHost_win.cpp
++++ b/src/ports/SkFontHost_win.cpp
+@@ -1073,7 +1073,7 @@ void SkScalerContext_GDI::RGBToA8(const SkGdiRGB* SK_RESTRICT src, size_t srcRB,
+         for (int i = 0; i < width; i++) {
+             dst[i] = rgb_to_a8<APPLY_PREBLEND>(src[i], table8);
+             if constexpr (kSkShowTextBlitCoverage) {
+-                dst[i] = std::max(dst[i], 10u);
++                dst[i] = std::max<uint8_t>(dst[i], 10u);
+             }
+         }
+         src = SkTAddOffset<const SkGdiRGB>(src, srcRB);

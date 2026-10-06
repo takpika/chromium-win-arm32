@@ -21,6 +21,7 @@
 #include "sandbox/win/src/interception.h"
 #include "sandbox/win/src/nt_internals.h"
 #include "sandbox/win/src/restricted_token_utils.h"
+#include "sandbox/win/src/sandbox_nt_util.h"
 #include "sandbox/win/src/sandbox_rand.h"
 #include "sandbox/win/src/win_utils.h"
 
@@ -101,6 +102,78 @@ bool IsRunning32bitEmulatedOnArm64() {
 #endif  // defined(ARCH_CPU_X86)
   return false;
 }
+
+// Windows RT 8.x (the 32-bit ARM Windows before Windows 10) rejects
+// PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY in CreateProcess with
+// ERROR_INVALID_PARAMETER for every size and value (including 0), so there
+// nothing can be requested at process creation; see
+// CreationMitigationsAppliedPostStartup().
+bool CanSetProcessMitigationsAtCreation() {
+#if defined(ARCH_CPU_ARMEL)
+  return base::win::GetVersion() >= base::win::Version::WIN10;
+#else
+  return true;
+#endif
+}
+
+// Where creation-time mitigations are unavailable, the creation-time flags the
+// process can set on itself are applied by the target post-startup instead.
+// Not listed, because Windows RT already enforces them for every process
+// (GetProcessMitigationPolicy: ProcessASLRPolicy = force-relocate | bottom-up |
+// disallow-stripped; DEP is always on for ARM and not configurable): the ASLR
+// and DEP flags. SEHOP is x86-only.
+MitigationFlags CreationMitigationsAppliedPostStartup(MitigationFlags flags) {
+  if (CanSetProcessMitigationsAtCreation())
+    return 0;
+  return flags & (MITIGATION_HEAP_TERMINATE | MITIGATION_STRICT_HANDLE_CHECKS |
+                  MITIGATION_EXTENSION_POINT_DISABLE |
+                  MITIGATION_WIN32K_DISABLE | MITIGATION_DYNAMIC_CODE_DISABLE);
+}
+
+#if defined(ARCH_CPU_ARMEL)
+// Makes the suspended target load its DLLs on the main thread only, by setting
+// RTL_USER_PROCESS_PARAMETERS.LoaderThreads (offset 0x2a0 in the 32-bit
+// structure, Windows 10+) to 1 -- the value the Arm32 loader itself stores there
+// to force single-threaded loading. Loader worker threads impersonate the main
+// thread's token through NtSetInformationThread, which TargetNtSetInformationThread
+// turns into a no-op until RevertToSelf, so they would load DLLs with the
+// lockdown token and fail. The x86/x64/arm64 loaders do not load in parallel in
+// a process whose loader functions are hooked; the Arm32 loader has no such
+// check. Returns false if the field cannot be set as expected.
+bool LimitLoaderToMainThread(HANDLE process) {
+  if (base::win::GetVersion() < base::win::Version::WIN10)
+    return true;  // No parallel loader and no such field.
+  constexpr size_t kLoaderThreadsOffset = 0x2a0;
+  PROCESS_BASIC_INFORMATION basic_info = {};
+  if (GetNtExports()->QueryInformationProcess(
+          process, ProcessBasicInformation, &basic_info, sizeof(basic_info),
+          nullptr) != STATUS_SUCCESS) {
+    return false;
+  }
+  PEB peb = {};
+  SIZE_T bytes = 0;
+  if (!::ReadProcessMemory(process, basic_info.PebBaseAddress, &peb,
+                           sizeof(peb), &bytes) ||
+      bytes != sizeof(peb) || !peb.ProcessParameters) {
+    return false;
+  }
+  char* field =
+      reinterpret_cast<char*>(peb.ProcessParameters) + kLoaderThreadsOffset;
+  ULONG value = 0;
+  if (!::ReadProcessMemory(process, field, &value, sizeof(value), &bytes) ||
+      bytes != sizeof(value) || value != 0) {
+    return false;  // Unexpected layout or an already-set value.
+  }
+  value = 1;
+  if (!::WriteProcessMemory(process, field, &value, sizeof(value), &bytes) ||
+      bytes != sizeof(value)) {
+    return false;
+  }
+  value = 0;
+  return ::ReadProcessMemory(process, field, &value, sizeof(value), &bytes) &&
+         bytes == sizeof(value) && value == 1;
+}
+#endif  // defined(ARCH_CPU_ARMEL)
 
 bool SetProcessMitigationPolicyInternal(PROCESS_MITIGATION_POLICY policy,
                                         PVOID lpBuffer,
@@ -381,8 +454,11 @@ bool LockDownSecurityMitigations(MitigationFlags additional_flags) {
   if (!CanSetProcessMitigationsPostStartup(additional_flags))
     return false;
 
+  // Flags moved to post-startup were not applied at creation.
   return ApplyProcessMitigationsToCurrentProcess(
-      g_shared_startup_mitigations, additional_flags, g_current_mitigations);
+      g_shared_startup_mitigations &
+          ~CreationMitigationsAppliedPostStartup(g_shared_startup_mitigations),
+      additional_flags, g_current_mitigations);
 }
 
 bool ApplyMitigationsToCurrentThread(MitigationFlags flags) {
@@ -432,10 +508,19 @@ void ConvertProcessMitigationsToPolicy(MitigationFlags flags,
   *policy_value_1 = 0;
   *policy_value_2 = 0;
 
+  // Where the attribute is rejected, request nothing at creation (see
+  // CreationMitigationsAppliedPostStartup).
+  if (!CanSetProcessMitigationsAtCreation()) {
+    *size = 0;
+    return;
+  }
+
 #if defined(_WIN64)
   *size = sizeof(*policy_flags);
-#elif defined(_M_IX86)
-  // A 64-bit flags attribute is illegal on 32-bit Win 7.
+#elif defined(_M_IX86) || defined(__arm__)
+  // A 64-bit flags attribute is illegal on 32-bit Win 7. win-arm32 (llvm-mingw
+  // defines __arm__, not _M_ARM) is 32-bit and always Win8+ (WinRT 8.1 / Win11
+  // ARM), so it takes the Win8+ branch; the logic is identical to 32-bit x86.
   if (version < base::win::Version::WIN8)
     *size = sizeof(DWORD);
   else
@@ -634,7 +719,8 @@ MitigationFlags FilterPostStartupProcessMitigations(MitigationFlags flags) {
   }
 
   // Windows 8 and above.
-  return flags & (MITIGATION_BOTTOM_UP_ASLR | MITIGATION_DLL_SEARCH_ORDER);
+  return (flags & (MITIGATION_BOTTOM_UP_ASLR | MITIGATION_DLL_SEARCH_ORDER)) |
+         CreationMitigationsAppliedPostStartup(flags);
 }
 
 bool ApplyProcessMitigationsToSuspendedProcess(HANDLE process,
@@ -659,6 +745,11 @@ bool ApplyProcessMitigationsToSuspendedProcess(HANDLE process,
       ptr += size;
     }
   }
+#endif
+
+#if defined(ARCH_CPU_ARMEL)
+  if (!LimitLoaderToMainThread(process))
+    return false;
 #endif
 
   return true;

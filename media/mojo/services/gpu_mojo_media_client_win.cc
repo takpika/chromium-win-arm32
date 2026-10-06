@@ -17,6 +17,7 @@
 #include "media/gpu/windows/mf_audio_encoder.h"
 #include "ui/gl/direct_composition_support.h"
 #include "ui/gl/gl_angle_util_win.h"
+#include "ui/gl/gl_implementation.h"
 
 namespace media {
 
@@ -29,8 +30,13 @@ D3D11VideoDecoder::GetD3D11DeviceCB GetD3D11DeviceCallback() {
 
 bool ShouldUseD3D11VideoDecoder(
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds) {
+  // D3D11VideoDecoder decodes on ANGLE's D3D11 device (GetD3D11DeviceCallback),
+  // which does not exist when ANGLE renders with Direct3D 9. For that renderer
+  // the platform decoder is DXVAVideoDecodeAccelerator's D3D9 path
+  // (VdaVideoDecoder), which shares ANGLE's D3D9 device.
   return !gpu_workarounds.disable_d3d11_video_decoder &&
-         base::win::GetVersion() > base::win::Version::WIN7;
+         base::win::GetVersion() > base::win::Version::WIN7 &&
+         gl::GetANGLEImplementation() != gl::ANGLEImplementation::kD3D9;
 }
 
 }  // namespace

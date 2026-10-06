@@ -50,7 +50,7 @@ void Threading::Initialize() {
   WtfThreading();
 }
 
-#if BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)
+#if BUILDFLAG(IS_WIN)
 size_t Threading::ThreadStackSize() {
   // Needed to bootstrap Threading on Windows, because this value is needed
   // before the main thread data is fully initialized.

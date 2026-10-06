@@ -61,13 +61,39 @@ struct PA_CHROME_SRWLOCK {
 
 // Define some macros needed when prototyping Windows functions.
 
+#if defined(__MINGW32__)
+// mingw-w64's headers spell these differently from the Windows SDK (and leave
+// WINAPI empty on ARM); define them as mingw-w64 does, including its #ifndef
+// guards (winnt.h, minwindef.h, apisetcconv.h), so that either include order
+// with windows.h, or with base/win/windows_types.h, defines each macro once.
+#ifndef DECLSPEC_IMPORT
+#define DECLSPEC_IMPORT __declspec (dllimport)
+#endif
+#ifndef WINBASEAPI
+#define WINBASEAPI DECLSPEC_IMPORT
+#endif
+#ifndef WINAPI
+#if defined(_ARM_)
+#define WINAPI
+#else
+#define WINAPI __stdcall
+#endif
+#endif
+#else
 #define DECLSPEC_IMPORT __declspec(dllimport)
 #define WINBASEAPI DECLSPEC_IMPORT
 #define WINAPI __stdcall
+#endif
 
 // Needed for LockImpl.
+#if defined(__MINGW32__)
+// As in mingw-w64's synchapi.h, which declares it without WINBASEAPI.
+_Releases_exclusive_lock_(*SRWLock) VOID WINAPI
+    ReleaseSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
+#else
 WINBASEAPI _Releases_exclusive_lock_(*SRWLock) VOID WINAPI
     ReleaseSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
+#endif
 WINBASEAPI BOOLEAN WINAPI TryAcquireSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
 
 // Needed for thread_local_storage.h

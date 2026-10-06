@@ -259,6 +259,8 @@ TEST_F(AdditionalParametersTest, SetChannel) {
           EXPECT_THAT(ap.value(), ::testing::StartsWith(L"stable-arch_x86"));
 #elif defined(ARCH_CPU_ARM64)
           EXPECT_THAT(ap.value(), ::testing::StartsWith(L"stable-arch_arm64"));
+#elif defined(ARCH_CPU_ARMEL)
+          EXPECT_THAT(ap.value(), ::testing::StartsWith(L"stable-arch_arm"));
 #else
 #error unsupported processor architecture.
 #endif
@@ -270,7 +272,11 @@ TEST_F(AdditionalParametersTest, SetChannel) {
         EXPECT_THAT(ap.value(),
                     ::testing::StartsWith(std::wstring(channel.prefix)));
         if (expectation.has_arch)
+#if defined(ARCH_CPU_ARMEL)
+          EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_arm"));
+#else
           EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_x"));
+#endif
       }
     }
   }

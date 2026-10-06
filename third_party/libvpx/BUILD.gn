@@ -270,7 +270,24 @@ if (cpu_arch_full == "arm-neon-cpu-detect") {
 }
 
 if (current_cpu == "arm") {
-  if (cpu_arch_full == "arm-neon") {
+  if (is_win) {
+    # win-arm32 is Thumb-2-only. libvpx's hand-written A32 (.asm) NEON kernels
+    # (libvpx_srcs_arm_neon_assembly) are converted by ads2gas.pl (see the
+    # convert_arm_assembly action below), which DOES ship a Thumb-2 flavour
+    # (`-thumb`/build/make/thumb.pm), so they CAN be assembled to Thumb-2. They are
+    # skipped here not because assembly is impossible, but because the Thumb-2
+    # transpilation of that hand asm has UNVERIFIED runtime correctness on this
+    # target (the earlier -thumb/-noelf/-mimplicit-it approach was removed for that
+    # reason). Instead the NEON kernels are supplied as <arm_neon.h> intrinsic .c in
+    # the libvpx() target below (the sources -=/+= hunk); that C set equals libvpx's
+    # GENERIC arm64 intrinsic-NEON list (libvpx_srcs_arm64) — NOT the win/arm64
+    # selection, which is libvpx_srcs_arm64_highbd. HAVE_NEON stays 1; HAVE_NEON_ASM=0
+    # so rtcd dispatches to the *_neon intrinsic names. NEON coverage is preserved by
+    # intrinsics, not dropped to scalar C. NOTE: several of those intrinsic .c are NOT
+    # already in libvpx_srcs_arm_neon (upstream ships them only as A32 asm for arm32) —
+    # they are added explicitly below; see that hunk for the 24-symbol closure.
+    arm_assembly_sources = []
+  } else if (cpu_arch_full == "arm-neon") {
     arm_assembly_sources = libvpx_srcs_arm_neon_assembly
   } else if (cpu_arch_full == "arm-neon-highbd") {
     arm_assembly_sources = libvpx_srcs_arm_neon_highbd_assembly
@@ -401,6 +418,28 @@ static_library("libvpx") {
       public_deps = [ ":libvpx_arm_neon_highbd_headers" ]
     } else if (arm_use_neon) {
       sources = libvpx_srcs_arm_neon
+      if (is_win) {
+        # win-arm32 (Thumb-2-only, no hand-A32-asm): the arm-neon C list provides
+        # NEON via a mix of intrinsic .c AND asm-dispatcher .c that call the
+        # hand-written A32 kernels (skipped here, see arm_assembly_sources above).
+        # Those dispatchers leave 24 NEON symbols undefined at executable link
+        # (idct4x4, loopfilter, convolve_avg/copy, convolve8). Replace the
+        # convolve8 asm-dispatcher with the pure-intrinsic .c and add the
+        # intrinsic .c versions of the other asm-only kernels (all verified to
+        # compile for armv7 -mfpu=neon). rtcd already dispatches to the *_neon
+        # intrinsic names (HAVE_NEON_ASM=0), so these definitions resolve them.
+        sources -= [
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/vpx_convolve8_neon_asm.c",
+        ]
+        sources += [
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/idct4x4_1_add_neon.c",
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/idct4x4_add_neon.c",
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/loopfilter_neon.c",
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/vpx_convolve8_neon.c",
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/vpx_convolve_avg_neon.c",
+          "//third_party/libvpx/source/libvpx/vpx_dsp/arm/vpx_convolve_copy_neon.c",
+        ]
+      }
       public_deps = [ ":libvpx_arm_neon_headers" ]
     } else if (is_android) {
       sources = libvpx_srcs_arm_neon_cpu_detect

@@ -5,6 +5,11 @@
 #ifndef SANDBOX_WIN_SRC_IPC_TAGS_H_
 #define SANDBOX_WIN_SRC_IPC_TAGS_H_
 
+#include <stddef.h>  // for size_t (kMaxServiceCount/kMaxIpcTag); this header
+                     // used size_t without including its definition and only
+                     // compiled by transitive luck on other targets' include
+                     // order. Make it self-contained (needed on win-arm32/clang).
+
 namespace sandbox {
 
 enum class IpcTag {

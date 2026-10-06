@@ -23,5 +23,13 @@ source_set("farmhash") {
   configs += [ "//build/config/compiler:no_chromium_code" ]
   configs += [ ":farmhash-warnings" ]
 
+  if (is_win && current_cpu == "arm") {
+    # Windows on ARM32 uses the MinGW-w64 toolchain (no _MSC_VER), so farmhash's
+    # portability layer would fall through to <byteswap.h>, which MinGW lacks.
+    # Declare the byte order explicitly -- farmhash's documented configuration
+    # macro -- so it uses the __builtin_bswap path and needs no OS header.
+    defines = [ "FARMHASH_LITTLE_ENDIAN" ]
+  }
+
   public_configs = [ ":farmhash_include" ]
 }

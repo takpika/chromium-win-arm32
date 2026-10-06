@@ -30,8 +30,11 @@
 #endif
 
 #if defined(_WIN32)
+#include <sys/stat.h>  // struct stat / stat() used below (UCRT provides them)
 #include <windows.h>
+#ifndef PATH_MAX  // mingw-w64 <limits.h> defines it (260, as MAX_PATH).
 #define PATH_MAX MAX_PATH
+#endif
 #include "base/strings/utf_string_conversions.h"
 #else
 #include <fcntl.h>

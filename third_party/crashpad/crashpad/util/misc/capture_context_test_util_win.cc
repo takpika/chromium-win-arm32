@@ -107,6 +107,8 @@ uintptr_t StackPointerFromContext(const NativeCPUContext& context) {
   return context.Rsp;
 #elif defined(ARCH_CPU_ARM64)
   return context.Sp;
+#elif defined(ARCH_CPU_ARMEL)
+  return context.Sp;
 #endif
 }
 

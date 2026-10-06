@@ -41,6 +41,12 @@ struct IsUnexpected : std::false_type {};
 template <typename E>
 struct IsUnexpected<unexpected<E>> : std::true_type {};
 
+template <typename T>
+struct IsExpected : std::false_type {};
+
+template <typename T, typename E>
+struct IsExpected<expected<T, E>> : std::true_type {};
+
 template <typename T, typename U>
 struct IsConstructibleOrConvertible
     : std::disjunction<std::is_constructible<T, U>, std::is_convertible<U, T>> {

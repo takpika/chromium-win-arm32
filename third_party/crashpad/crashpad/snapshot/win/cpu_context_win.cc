@@ -256,6 +256,45 @@ void InitializeARM64Context(const CONTEXT* context, CPUContextARM64* out) {
   }
 }
 
+#elif defined(ARCH_CPU_ARMEL)
+
+void InitializeARMContext(const CONTEXT* context, CPUContextARM* out) {
+  memset(out, 0, sizeof(*out));
+
+  LOG_IF(ERROR, !HasContextPart(context, CONTEXT_ARM)) << "non-arm context";
+
+  if (HasContextPart(context, CONTEXT_CONTROL)) {
+    // CPUContextARM has no dedicated sb/ip control block: sp/lr/pc/cpsr map
+    // directly onto the win-arm32 CONTEXT control registers (winnt.h _CONTEXT:
+    // Sp@0x38, Lr@0x3c, Pc@0x40, Cpsr@0x44).
+    out->sp = context->Sp;
+    out->lr = context->Lr;
+    out->pc = context->Pc;
+    out->cpsr = context->Cpsr;
+  }
+
+  if (HasContextPart(context, CONTEXT_INTEGER)) {
+    // CONTEXT.R0..R12 are 13 contiguous DWORDs (winnt.h _CONTEXT R0@0x04). The
+    // crashpad CPUContextARM splits them: regs[0..10] = r0..r10, fp = r11,
+    // ip = r12 (matching cpu_context_linux.cc's ARM mapping).
+    static_assert(sizeof(out->regs) == 11 * sizeof(context->R0),
+                  "types must be equivalent");
+    memcpy(&out->regs[0], &context->R0, sizeof(out->regs));  // r0..r10
+    out->fp = context->R11;
+    out->ip = context->R12;
+  }
+
+  if (HasContextPart(context, CONTEXT_FLOATING_POINT)) {
+    // Windows-arm32 always carries the full D0..D31 (VFPv3/NEON) bank in
+    // CONTEXT.D[32]; CPUContextARM.vfp_regs.vfp is the same 32x64-bit shape.
+    static_assert(sizeof(out->vfp_regs.vfp) == sizeof(context->D),
+                  "types must be equivalent");
+    memcpy(&out->vfp_regs.vfp, &context->D, sizeof(out->vfp_regs.vfp));
+    out->vfp_regs.fpscr = context->Fpscr;
+    out->have_vfp_regs = true;
+  }
+}
+
 #else
 #error Unsupported Windows Arch
 #endif  // ARCH_CPU_X86

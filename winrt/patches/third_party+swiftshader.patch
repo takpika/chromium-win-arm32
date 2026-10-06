@@ -1,0 +1,466 @@
+diff --git a/src/Reactor/LLVMJIT.cpp b/src/Reactor/LLVMJIT.cpp
+index d3dbdb987e9437692aeeb20d65dff34869e4cf41..23beb4dce14b9e565037d8065219c06e53cd081f 100644
+--- a/src/Reactor/LLVMJIT.cpp
++++ b/src/Reactor/LLVMJIT.cpp
+@@ -78,11 +78,28 @@ __pragma(warning(push))
+ 
+ #if defined(_WIN64)
+         extern "C" void __chkstk();
++#elif defined(_WIN32) && defined(__arm__)
++// Windows on ARM32: the helpers LLVM's ARM backend calls for a Windows target
++// (ARMISelLowering: __chkstk, the __rt_* division and the int64<->float
++// conversion routines), provided by the OS and compiler-rt.
++extern "C" void __chkstk();
++extern "C" void __rt_sdiv();
++extern "C" void __rt_udiv();
++extern "C" void __rt_sdiv64();
++extern "C" void __rt_udiv64();
++extern "C" void __i64tos();
++extern "C" void __i64tod();
++extern "C" void __u64tos();
++extern "C" void __u64tod();
++extern "C" void __stoi64();
++extern "C" void __dtoi64();
++extern "C" void __stou64();
++extern "C" void __dtou64();
+ #elif defined(_WIN32)
+ extern "C" void _chkstk();
+ #endif
+ 
+-#ifdef __ARM_EABI__
++#if defined(__ARM_EABI__) && !defined(_WIN32)
+ extern "C" signed __aeabi_idivmod();
+ #endif
+ 
+@@ -327,6 +344,17 @@ public:
+ 		        reinterpret_cast<uintptr_t>(addr);
+ 
+ 		rr::protectMemoryPages(addr, size, flagsToPermissions(flags));
++
++		// Like LLVM's default mapper (sys::Memory::protectMappedMemory), make
++		// the code written through the data cache visible to instruction fetch
++		// once it becomes executable. SectionMemoryManager::finalizeMemory()'s
++		// own invalidateInstructionCache() runs after the pending blocks were
++		// cleared, so it flushes nothing.
++		if(flags & llvm::sys::Memory::MF_EXEC)
++		{
++			llvm::sys::Memory::InvalidateInstructionCache(block.base(), block.allocatedSize());
++		}
++
+ 		return std::error_code();
+ 	}
+ 
+@@ -556,11 +584,25 @@ class ExternalSymbolGenerator : public llvm::orc::JITDylib::DefinitionGenerator
+ 			functions.try_emplace("sincosf", reinterpret_cast<void *>(sincosf));
+ #elif defined(_WIN64)
+ 			functions.try_emplace("__chkstk", reinterpret_cast<void *>(__chkstk));
++#elif defined(_WIN32) && defined(__arm__)
++			functions.try_emplace("__chkstk", reinterpret_cast<void *>(__chkstk));
++			functions.try_emplace("__rt_sdiv", reinterpret_cast<void *>(__rt_sdiv));
++			functions.try_emplace("__rt_udiv", reinterpret_cast<void *>(__rt_udiv));
++			functions.try_emplace("__rt_sdiv64", reinterpret_cast<void *>(__rt_sdiv64));
++			functions.try_emplace("__rt_udiv64", reinterpret_cast<void *>(__rt_udiv64));
++			functions.try_emplace("__i64tos", reinterpret_cast<void *>(__i64tos));
++			functions.try_emplace("__i64tod", reinterpret_cast<void *>(__i64tod));
++			functions.try_emplace("__u64tos", reinterpret_cast<void *>(__u64tos));
++			functions.try_emplace("__u64tod", reinterpret_cast<void *>(__u64tod));
++			functions.try_emplace("__stoi64", reinterpret_cast<void *>(__stoi64));
++			functions.try_emplace("__dtoi64", reinterpret_cast<void *>(__dtoi64));
++			functions.try_emplace("__stou64", reinterpret_cast<void *>(__stou64));
++			functions.try_emplace("__dtou64", reinterpret_cast<void *>(__dtou64));
+ #elif defined(_WIN32)
+ 			functions.try_emplace("_chkstk", reinterpret_cast<void *>(_chkstk));
+ #endif
+ 
+-#ifdef __ARM_EABI__
++#if defined(__ARM_EABI__) && !defined(_WIN32)
+ 			functions.try_emplace("__aeabi_idivmod", reinterpret_cast<void *>(__aeabi_idivmod));
+ #endif
+ #ifdef __ANDROID__
+@@ -833,7 +875,16 @@ public:
+ 			}
+ 			else  // Successful compilation
+ 			{
+-				addresses[i] = reinterpret_cast<void *>(static_cast<intptr_t>(symbol->getAddress()));
++				auto address = static_cast<intptr_t>(symbol->getAddress());
++				// RuntimeDyld reports a Thumb function's load address without the
++				// interworking bit (see the FIXME in RuntimeDyldImpl::getSymbol(): the
++				// client applies it). Callers enter the routine with BLX, which selects
++				// the instruction set from bit 0, so set it for Thumb targets.
++				if(JITGlobals::get()->getTargetTriple().isThumb())
++				{
++					address |= 1;
++				}
++				addresses[i] = reinterpret_cast<void *>(address);
+ 			}
+ 		}
+ 
+diff --git a/src/Reactor/reactor.gni b/src/Reactor/reactor.gni
+index 04fad6f8119aee6e005febb2b479cef3ce160607..38fa3a441c3c0e1bd530c079f684b232afb4f36c 100644
+--- a/src/Reactor/reactor.gni
++++ b/src/Reactor/reactor.gni
+@@ -10,7 +10,9 @@ import("//build_overrides/build.gni")
+ 
+ declare_args() {
+   # Subzero doesn't support ARM64, MIPS64, PPC64, and RISCV64 (only x86 and ARMv7a).
+-  supports_subzero = current_cpu != "arm64" && current_cpu != "mips64el" && current_cpu != "ppc64" && current_cpu != "riscv64"
++  # Its ARMv7a backend emits ARM-state (A32) code, but Windows on ARM runs code
++  # in Thumb-2 state only, so Windows ARMv7a uses LLVM (thumbv7) instead.
++  supports_subzero = current_cpu != "arm64" && current_cpu != "mips64el" && current_cpu != "ppc64" && current_cpu != "riscv64" && !(is_win && current_cpu == "arm")
+ }
+ 
+ declare_args() {
+diff --git a/src/System/Timer.cpp b/src/System/Timer.cpp
+index 79e48cad85f4b5a9a7846af6806b7e1b8044d643..2ca2aa61deaa009f220f4207ba1e85b8bb82053d 100644
+--- a/src/System/Timer.cpp
++++ b/src/System/Timer.cpp
+@@ -61,6 +61,8 @@ int64_t Timer::ticks()
+ #if defined(_WIN32)
+ #	if defined(_M_ARM64)
+ 	return _ReadStatusReg(ARM64_PMCCNTR_EL0);
++#	elif defined(_M_ARM)
++	return counter();  // no user-mode cycle counter on Windows ARM32
+ #	else
+ 	return __rdtsc();
+ #	endif
+diff --git a/third_party/llvm-10.0/BUILD.gn b/third_party/llvm-10.0/BUILD.gn
+index 59e52303c5cb580006c0c212e6a31e19cbb4c179..318df5ed458aec7cb9d8de72b1111eed05d0a193 100644
+--- a/third_party/llvm-10.0/BUILD.gn
++++ b/third_party/llvm-10.0/BUILD.gn
+@@ -867,6 +867,7 @@ swiftshader_llvm_source_set("swiftshader_llvm_support") {
+     "llvm/lib/Support/ARMAttributeParser.cpp",
+     "llvm/lib/Support/ARMBuildAttrs.cpp",
+     "llvm/lib/Support/ARMTargetParser.cpp",
++    "llvm/lib/Support/Atomic.cpp",
+     "llvm/lib/Support/BinaryStreamError.cpp",
+     "llvm/lib/Support/BinaryStreamReader.cpp",
+     "llvm/lib/Support/BinaryStreamRef.cpp",
+@@ -995,6 +996,7 @@ swiftshader_llvm_source_set("swiftshader_llvm_transforms_scalar") {
+     "llvm/lib/Transforms/Scalar/LoopUnrollPass.cpp",
+     "llvm/lib/Transforms/Scalar/LoopUnswitch.cpp",
+     "llvm/lib/Transforms/Scalar/LoopVersioningLICM.cpp",
++    "llvm/lib/Transforms/Scalar/LowerAtomic.cpp",
+     "llvm/lib/Transforms/Scalar/LowerConstantIntrinsics.cpp",
+     "llvm/lib/Transforms/Scalar/LowerExpectIntrinsic.cpp",
+     "llvm/lib/Transforms/Scalar/LowerMatrixIntrinsics.cpp",
+diff --git a/third_party/llvm-10.0/configs/windows/include/llvm/Config/llvm-config.h b/third_party/llvm-10.0/configs/windows/include/llvm/Config/llvm-config.h
+index 098a22c5aa3570fb7b81431378b0590bf5e98715..f736efac70ec4851e0f21a8ae509d9e6647bc639 100644
+--- a/third_party/llvm-10.0/configs/windows/include/llvm/Config/llvm-config.h
++++ b/third_party/llvm-10.0/configs/windows/include/llvm/Config/llvm-config.h
+@@ -33,7 +33,7 @@
+ #elif defined(__i386__)
+ #define LLVM_DEFAULT_TARGET_TRIPLE "i686-pc-win32"
+ #elif defined(__arm__)
+-#define LLVM_DEFAULT_TARGET_TRIPLE "armv7-pc-win32"
++#define LLVM_DEFAULT_TARGET_TRIPLE "thumbv7-pc-win32"
+ #elif defined(__aarch64__)
+ #define LLVM_DEFAULT_TARGET_TRIPLE "aarch64-pc-win32"
+ #elif defined(__mips__)
+@@ -56,7 +56,7 @@
+ #elif defined(__i386__)
+ #define LLVM_HOST_TRIPLE "i686-pc-win32"
+ #elif defined(__arm__)
+-#define LLVM_HOST_TRIPLE "armv7-pc-win32"
++#define LLVM_HOST_TRIPLE "thumbv7-pc-win32"
+ #elif defined(__aarch64__)
+ #define LLVM_HOST_TRIPLE "aarch64-pc-win32"
+ #elif defined(__mips__)
+diff --git a/third_party/llvm-10.0/llvm/lib/ExecutionEngine/RuntimeDyld/Targets/RuntimeDyldCOFFThumb.h b/third_party/llvm-10.0/llvm/lib/ExecutionEngine/RuntimeDyld/Targets/RuntimeDyldCOFFThumb.h
+index bb2e9626e0b07c538f1039b0a55395048d765b67..c732fd888c17e7b729e1f3167bcff03995fe9266 100644
+--- a/third_party/llvm-10.0/llvm/lib/ExecutionEngine/RuntimeDyld/Targets/RuntimeDyldCOFFThumb.h
++++ b/third_party/llvm-10.0/llvm/lib/ExecutionEngine/RuntimeDyld/Targets/RuntimeDyldCOFFThumb.h
+@@ -16,6 +16,8 @@
+ #include "../RuntimeDyldCOFF.h"
+ #include "llvm/BinaryFormat/COFF.h"
+ #include "llvm/Object/COFF.h"
++#include "llvm/Support/Endian.h"
++#include "llvm/Support/MathExtras.h"
+ 
+ #define DEBUG_TYPE "dyld"
+ 
+@@ -44,6 +46,62 @@ static bool isThumbFunc(object::symbol_iterator Symbol,
+          COFF::IMAGE_SCN_MEM_16BIT;
+ }
+ 
++// Thumb-2 branch immediates (ARM ARM A8.8.18 B T3/T4, A8.8.25 BL T1).
++// T4/T1: imm32 = SignExtend(S:I1:I2:imm10:imm11:'0'), I1 = NOT(J1 XOR S),
++// I2 = NOT(J2 XOR S). T3: imm32 = SignExtend(S:J2:J1:imm6:imm11:'0').
++static int64_t decodeThumbBranch24(const uint8_t *Bytes) {
++  uint32_t Hi = support::endian::read16le(Bytes);
++  uint32_t Lo = support::endian::read16le(Bytes + 2);
++  uint32_t S = (Hi >> 10) & 1, J1 = (Lo >> 13) & 1, J2 = (Lo >> 11) & 1;
++  uint32_t I1 = !(J1 ^ S), I2 = !(J2 ^ S);
++  uint32_t Imm = (S << 24) | (I1 << 23) | (I2 << 22) | ((Hi & 0x3ff) << 12) |
++                 ((Lo & 0x7ff) << 1);
++  return SignExtend64<25>(Imm);
++}
++
++static int64_t decodeThumbBranch20(const uint8_t *Bytes) {
++  uint32_t Hi = support::endian::read16le(Bytes);
++  uint32_t Lo = support::endian::read16le(Bytes + 2);
++  uint32_t Imm = (((Hi >> 10) & 1) << 20) | (((Lo >> 11) & 1) << 19) |
++                 (((Lo >> 13) & 1) << 18) | ((Hi & 0x3f) << 12) |
++                 ((Lo & 0x7ff) << 1);
++  return SignExtend64<21>(Imm);
++}
++
++// MOVW/MOVT (T3/T1) immediate: imm16 = imm4:i:imm3:imm8.
++static uint16_t decodeThumbMovImm(const uint8_t *Bytes) {
++  uint32_t Hi = support::endian::read16le(Bytes);
++  uint32_t Lo = support::endian::read16le(Bytes + 2);
++  return ((Hi & 0xf) << 12) | (((Hi >> 10) & 1) << 11) | (((Lo >> 12) & 7) << 8) |
++         (Lo & 0xff);
++}
++
++static void encodeThumbBranch24(uint8_t *Bytes, int64_t Disp) {
++  if (!isInt<25>(Disp) || (Disp & 1))
++    report_fatal_error("Thumb branch relocation out of range");
++  uint32_t S = Disp < 0 ? 1 : 0;
++  uint32_t J1 = (((Disp >> 23) & 1) ^ 1) ^ S;
++  uint32_t J2 = (((Disp >> 22) & 1) ^ 1) ^ S;
++  uint32_t Hi = support::endian::read16le(Bytes);
++  uint32_t Lo = support::endian::read16le(Bytes + 2);
++  Hi = (Hi & 0xf800) | (S << 10) | ((Disp >> 12) & 0x3ff);
++  Lo = (Lo & 0xd000) | (J1 << 13) | (J2 << 11) | ((Disp >> 1) & 0x7ff);
++  support::endian::write16le(Bytes, Hi);
++  support::endian::write16le(Bytes + 2, Lo);
++}
++
++static void encodeThumbBranch20(uint8_t *Bytes, int64_t Disp) {
++  if (!isInt<21>(Disp) || (Disp & 1))
++    report_fatal_error("Thumb conditional branch relocation out of range");
++  uint32_t Hi = support::endian::read16le(Bytes);
++  uint32_t Lo = support::endian::read16le(Bytes + 2);
++  Hi = (Hi & 0xfbc0) | ((Disp < 0 ? 1 : 0) << 10) | ((Disp >> 12) & 0x3f);
++  Lo = (Lo & 0xd000) | (((Disp >> 18) & 1) << 13) | (((Disp >> 19) & 1) << 11) |
++       ((Disp >> 1) & 0x7ff);
++  support::endian::write16le(Bytes, Hi);
++  support::endian::write16le(Bytes + 2, Lo);
++}
++
+ class RuntimeDyldCOFFThumb : public RuntimeDyldCOFF {
+ public:
+   RuntimeDyldCOFFThumb(RuntimeDyld::MemoryManager &MM,
+@@ -54,7 +112,49 @@ public:
+     return 16; // 8-byte load instructions, 4-byte jump, 4-byte padding
+   }
+ 
+-  unsigned getStubAlignment() override { return 1; }
++  unsigned getStubAlignment() override { return 2; }
++
++  // A branch whose target is outside its own section (an external symbol, or
++  // another section placed independently by the memory manager) cannot assume
++  // the target is within the +-16MB (+-1MB for BRANCH20T) reach of a Thumb
++  // branch, so it is routed through a stub that materializes the full address:
++  //   movw ip, #:lower16:target ; movt ip, #:upper16:target ; bx ip
++  // The MOVW/MOVT pair is resolved as IMAGE_REL_ARM_MOV32T: against the symbol
++  // when TargetSectionID is -1, otherwise against that section.
++  uint64_t createBranchStub(unsigned SectionID, StringRef TargetName,
++                            unsigned TargetSectionID, int64_t Addend,
++                            StubMap &Stubs) {
++    SectionEntry &Section = Sections[SectionID];
++    RelocationValueRef StubKey;
++    StubKey.SectionID = SectionID;
++    StubKey.Offset = TargetSectionID; // symbol names alone may repeat
++    StubKey.Addend = Addend;
++    StubKey.SymbolName = TargetName.data();
++
++    auto Stub = Stubs.find(StubKey);
++    if (Stub != Stubs.end())
++      return Stub->second;
++
++    uint64_t StubOffset = Section.getStubOffset();
++    Stubs[StubKey] = StubOffset;
++    uint8_t *StubAddr = Section.getAddressWithOffset(StubOffset);
++    support::endian::write16le(StubAddr + 0, 0xf240); // movw ip, #0
++    support::endian::write16le(StubAddr + 2, 0x0c00);
++    support::endian::write16le(StubAddr + 4, 0xf2c0); // movt ip, #0
++    support::endian::write16le(StubAddr + 6, 0x0c00);
++    support::endian::write16le(StubAddr + 8, 0x4760); // bx ip
++    Section.advanceStubOffset(getMaxStubSize());
++
++    // Code on Windows on ARM is always Thumb, so the target address carries
++    // the interworking bit for BX.
++    RelocationEntry RE(SectionID, StubOffset, COFF::IMAGE_REL_ARM_MOV32T,
++                       Addend, TargetSectionID, 0, 0, 0, false, 0, true);
++    if (TargetSectionID == static_cast<unsigned>(-1))
++      addRelocationForSymbol(RE, TargetName);
++    else
++      addRelocationForSection(RE, TargetSectionID);
++    return StubOffset;
++  }
+ 
+   Expected<object::relocation_iterator>
+   processRelocationRef(unsigned SectionID,
+@@ -91,6 +191,18 @@ public:
+     case COFF::IMAGE_REL_ARM_SECREL:
+       Addend = readBytesUnaligned(Displacement, 4);
+       break;
++    case COFF::IMAGE_REL_ARM_BRANCH24T:
++    case COFF::IMAGE_REL_ARM_BLX23T:
++      Addend = decodeThumbBranch24(Displacement);
++      break;
++    case COFF::IMAGE_REL_ARM_BRANCH20T:
++      Addend = decodeThumbBranch20(Displacement);
++      break;
++    case COFF::IMAGE_REL_ARM_MOV32T:
++      Addend = decodeThumbMovImm(Displacement) |
++               (static_cast<uint32_t>(decodeThumbMovImm(Displacement + 4))
++                << 16);
++      break;
+     default:
+       break;
+     }
+@@ -105,8 +217,19 @@ public:
+ 
+     unsigned TargetSectionID = -1;
+     if (Section == Obj.section_end()) {
+-      RelocationEntry RE(SectionID, Offset, RelType, 0, -1, 0, 0, 0, false, 0);
+-      addRelocationForSymbol(RE, TargetName);
++      if (RelType == COFF::IMAGE_REL_ARM_BRANCH20T ||
++          RelType == COFF::IMAGE_REL_ARM_BRANCH24T ||
++          RelType == COFF::IMAGE_REL_ARM_BLX23T) {
++        // The branch reaches the stub, which lives in this section.
++        uint64_t StubOffset =
++            createBranchStub(SectionID, TargetName, -1, Addend, Stubs);
++        RelocationEntry RE(SectionID, Offset, RelType, StubOffset, true, 0);
++        addRelocationForSection(RE, SectionID);
++      } else {
++        RelocationEntry RE(SectionID, Offset, RelType, Addend, -1, 0, 0, 0,
++                           false, 0);
++        addRelocationForSymbol(RE, TargetName);
++      }
+     } else {
+       if (auto TargetSectionIDOrErr =
+           findOrEmitSection(Obj, *Section, Section->isText(), ObjSectionToID))
+@@ -159,10 +282,18 @@ public:
+       case COFF::IMAGE_REL_ARM_BRANCH20T:
+       case COFF::IMAGE_REL_ARM_BRANCH24T:
+       case COFF::IMAGE_REL_ARM_BLX23T: {
+-        RelocationEntry RE =
+-            RelocationEntry(SectionID, Offset, RelType,
+-                            getSymbolOffset(*Symbol) + Addend, true, 0);
+-        addRelocationForSection(RE, TargetSectionID);
++        if (TargetSectionID == SectionID) {
++          RelocationEntry RE =
++              RelocationEntry(SectionID, Offset, RelType,
++                              getSymbolOffset(*Symbol) + Addend, true, 0);
++          addRelocationForSection(RE, TargetSectionID);
++        } else {
++          uint64_t StubOffset =
++              createBranchStub(SectionID, TargetName, TargetSectionID,
++                               getSymbolOffset(*Symbol) + Addend, Stubs);
++          RelocationEntry RE(SectionID, Offset, RelType, StubOffset, true, 0);
++          addRelocationForSection(RE, SectionID);
++        }
+         break;
+       }
+       }
+@@ -185,7 +316,7 @@ public:
+       // The target's 32-bit VA.
+       uint64_t Result =
+           RE.Sections.SectionA == static_cast<uint32_t>(-1)
+-              ? Value
++              ? Value + RE.Addend
+               : Sections[RE.Sections.SectionA].getLoadAddressWithOffset(RE.Addend);
+       Result |= ISASelectionBit;
+       assert(Result <= UINT32_MAX && "relocation overflow");
+@@ -233,7 +364,9 @@ public:
+     case COFF::IMAGE_REL_ARM_MOV32T: {
+       // 32-bit VA of the target applied to a contiguous MOVW+MOVT pair.
+       uint64_t Result =
+-          Sections[RE.Sections.SectionA].getLoadAddressWithOffset(RE.Addend);
++          RE.Sections.SectionA == static_cast<uint32_t>(-1)
++              ? Value + RE.Addend
++              : Sections[RE.Sections.SectionA].getLoadAddressWithOffset(RE.Addend);
+       assert(Result <= UINT32_MAX && "relocation overflow");
+       LLVM_DEBUG(dbgs() << "\t\tOffset: " << RE.Offset
+                         << " RelType: IMAGE_REL_ARM_MOV32T"
+@@ -246,9 +379,14 @@ public:
+       // MOVT(T1): |11110|i|10|1|1|0|0|imm4|0|imm3|Rd|imm8|
+       //            imm16 =      imm4:i:imm3:imm8
+ 
++      // The immediate fields hold the addend, already folded into Result.
+       auto EncodeImmediate = [](uint8_t *Bytes, uint16_t Immediate)  {
++        Bytes[0] &= 0xf0;
++        Bytes[1] &= ~0x04;
++        Bytes[2] = 0;
++        Bytes[3] &= 0x8f;
+         Bytes[0] |= ((Immediate & 0xf000) >> 12);
+-        Bytes[1] |= ((Immediate & 0x0800) >> 11);
++        Bytes[1] |= ((Immediate & 0x0800) >> 9); // i is bit 10 of the first halfword
+         Bytes[2] |= ((Immediate & 0x00ff) >>  0);
+         Bytes[3] |= (((Immediate & 0x0700) >>  8) << 4);
+       };
+@@ -260,48 +398,34 @@ public:
+       break;
+     }
+     case COFF::IMAGE_REL_ARM_BRANCH20T: {
+-      // The most significant 20-bits of the signed 21-bit relative displacement
+-      uint64_t Value =
+-          RE.Addend - (Sections[RE.SectionID].getLoadAddress() + RE.Offset) - 4;
+-      assert(static_cast<int64_t>(RE.Addend) <= INT32_MAX &&
+-             "relocation overflow");
+-      assert(static_cast<int64_t>(RE.Addend) >= INT32_MIN &&
+-             "relocation underflow");
++      // Conditional B.W (T3): signed 21-bit displacement from PC (P + 4).
++      uint64_t P = Section.getLoadAddressWithOffset(RE.Offset);
++      int64_t Disp = static_cast<int64_t>(Value + RE.Addend) -
++                     static_cast<int64_t>(P + 4);
+       LLVM_DEBUG(dbgs() << "\t\tOffset: " << RE.Offset
+                         << " RelType: IMAGE_REL_ARM_BRANCH20T"
+-                        << " Value: " << static_cast<int32_t>(Value) << '\n');
+-      static_cast<void>(Value);
+-      llvm_unreachable("unimplemented relocation");
+-      break;
+-    }
+-    case COFF::IMAGE_REL_ARM_BRANCH24T: {
+-      // The most significant 24-bits of the signed 25-bit relative displacement
+-      uint64_t Value =
+-          RE.Addend - (Sections[RE.SectionID].getLoadAddress() + RE.Offset) - 4;
+-      assert(static_cast<int64_t>(RE.Addend) <= INT32_MAX &&
+-             "relocation overflow");
+-      assert(static_cast<int64_t>(RE.Addend) >= INT32_MIN &&
+-             "relocation underflow");
+-      LLVM_DEBUG(dbgs() << "\t\tOffset: " << RE.Offset
+-                        << " RelType: IMAGE_REL_ARM_BRANCH24T"
+-                        << " Value: " << static_cast<int32_t>(Value) << '\n');
+-      static_cast<void>(Value);
+-      llvm_unreachable("unimplemented relocation");
++                        << " Value: " << static_cast<int32_t>(Disp) << '\n');
++      encodeThumbBranch20(Target, Disp);
+       break;
+     }
++    case COFF::IMAGE_REL_ARM_BRANCH24T:
+     case COFF::IMAGE_REL_ARM_BLX23T: {
+-      // The most significant 24-bits of the signed 25-bit relative displacement
+-      uint64_t Value =
+-          RE.Addend - (Sections[RE.SectionID].getLoadAddress() + RE.Offset) - 4;
+-      assert(static_cast<int64_t>(RE.Addend) <= INT32_MAX &&
+-             "relocation overflow");
+-      assert(static_cast<int64_t>(RE.Addend) >= INT32_MIN &&
+-             "relocation underflow");
+-      LLVM_DEBUG(dbgs() << "\t\tOffset: " << RE.Offset
+-                        << " RelType: IMAGE_REL_ARM_BLX23T"
+-                        << " Value: " << static_cast<int32_t>(Value) << '\n');
+-      static_cast<void>(Value);
+-      llvm_unreachable("unimplemented relocation");
++      // B.W (T4) / BL (T1): signed 25-bit displacement from PC (P + 4). Every
++      // branch target on Windows on ARM is Thumb code, so a BLX23T site is
++      // written as BL (bit 12 of the second halfword set), which keeps the
++      // processor in Thumb state.
++      uint64_t P = Section.getLoadAddressWithOffset(RE.Offset);
++      int64_t Disp = static_cast<int64_t>(Value + RE.Addend) -
++                     static_cast<int64_t>(P + 4);
++      LLVM_DEBUG(dbgs() << "\t\tOffset: " << RE.Offset << " RelType: "
++                        << (RE.RelType == COFF::IMAGE_REL_ARM_BLX23T
++                                ? "IMAGE_REL_ARM_BLX23T"
++                                : "IMAGE_REL_ARM_BRANCH24T")
++                        << " Value: " << static_cast<int32_t>(Disp) << '\n');
++      encodeThumbBranch24(Target, Disp);
++      if (RE.RelType == COFF::IMAGE_REL_ARM_BLX23T)
++        support::endian::write16le(
++            Target + 2, support::endian::read16le(Target + 2) | 0x1000);
+       break;
+     }
+     }

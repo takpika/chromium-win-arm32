@@ -184,7 +184,7 @@ TEST_F(RegistryTest, ValueIteratorDefaultValue) {
   ASSERT_TRUE(iterator.Valid());
   EXPECT_EQ(WStringPiece(iterator.Name()), WStringPiece());
   EXPECT_EQ(iterator.ValueSize(), (kTestString.size() + 1) * sizeof(wchar_t));
-  EXPECT_EQ(iterator.Type(), REG_SZ);
+  EXPECT_EQ(iterator.Type(), static_cast<DWORD>(REG_SZ));
   EXPECT_EQ(WStringPiece(iterator.Value()), kTestString);
   ++iterator;
   EXPECT_FALSE(iterator.Valid());

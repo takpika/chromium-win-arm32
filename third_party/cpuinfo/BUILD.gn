@@ -200,7 +200,10 @@ source_set("cpu_and_os_specific") {
     sources = [ "src/src/x86/windows/init.c" ]
   }
 
-  if (is_win && current_cpu == "arm64") {
+  # win-arm32 (current_cpu=="arm") uses the SAME arm/windows backend as arm64; the
+  # 32-bit ISA population + unknown-chip NULL-guard live in those two sources
+  # (device-verified on Pro X + Surface 2).
+  if (is_win && (current_cpu == "arm" || current_cpu == "arm64")) {
     sources = [
       "src/src/arm/windows/init-by-logical-sys-info.c",
       "src/src/arm/windows/init.c",

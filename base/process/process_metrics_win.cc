@@ -162,11 +162,13 @@ TimeDelta ProcessMetrics::GetCumulativeCPUUsage() {
 }
 
 TimeDelta ProcessMetrics::GetPreciseCumulativeCPUUsage() {
-#if defined(ARCH_CPU_ARM64)
-  // Precise CPU usage is not available on Arm CPUs because they don't support
-  // constant rate TSC.
+#if defined(ARCH_CPU_ARM_FAMILY)
+  // Precise CPU usage is not available on Arm CPUs (arm64 AND arm32) because they
+  // don't support constant rate TSC. (Widened from ARCH_CPU_ARM64 to the whole ARM
+  // family so win-arm32 mirrors arm64 — it excludes the TSC path too; see
+  // base/time/time.h / time_win.cc.)
   return GetCumulativeCPUUsage();
-#else   // !defined(ARCH_CPU_ARM64)
+#else   // !defined(ARCH_CPU_ARM_FAMILY)
   if (!time_internal::HasConstantRateTSC())
     return GetCumulativeCPUUsage();
 
@@ -183,7 +185,7 @@ TimeDelta ProcessMetrics::GetPreciseCumulativeCPUUsage() {
 
   const double process_time_seconds = process_cycle_time / tsc_ticks_per_second;
   return Seconds(process_time_seconds);
-#endif  // !defined(ARCH_CPU_ARM64)
+#endif  // !defined(ARCH_CPU_ARM_FAMILY)
 }
 
 bool ProcessMetrics::GetIOCounters(IoCounters* io_counters) const {

@@ -1,0 +1,23 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index ae81550588b2888ecfe1f02362e2dd5f33ab743b..12745cbbd41a887fa7c5ef71f61ebfba0d219f47 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -105,6 +105,18 @@ source_set("flac") {
+       "/wd4334",  # 32-bit shift converted to 64 bits.
+       "/wd4267"   # Converting from size_t to unsigned on 64-bit.
+     ]
++    if (current_cpu == "arm") {
++      # Windows on ARM32 is built against the MinGW-w64 CRT, not MSVC's.
++      # Describe it the way FLAC's own configure does for a mingw target:
++      # <inttypes.h> exists (PRId64 etc.), and fseeko/ftello exist with a
++      # 64-bit off_t under _FILE_OFFSET_BITS=64. Without these, compat.h takes
++      # its MSVC-less fallback and redefines fseeko before <stdio.h>.
++      defines += [
++        "HAVE_INTTYPES_H",
++        "HAVE_FSEEKO",
++        "_FILE_OFFSET_BITS=64",
++      ]
++    }
+   } else {
+     defines += [
+       "HAVE_INTTYPES_H",

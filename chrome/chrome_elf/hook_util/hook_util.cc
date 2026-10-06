@@ -217,6 +217,13 @@ sandbox::ServiceResolverThunk* HookSystemService(bool relaxed) {
   // ServiceResolverThunk can handle all the formats in 64-bit (instead only
   // handling one like it does in 32-bit versions).
   thunk = new sandbox::ServiceResolverThunk(current_process, relaxed);
+#elif defined(__arm__)
+  // win-arm32: the Wow64*ResolverThunks parse the x86-on-x64 WoW64 stub, but an
+  // arm32 process -- native (Windows RT) or WoW64 on arm64, where
+  // IsWow64Process() is also true -- has arm32 ntdll stubs, which
+  // Win8ResolverThunk recognizes in both forms (service_resolver_arm.cc). Same
+  // choice as sandbox/win/src/interception.cc, which keys on IsWowX86OnAMD64().
+  thunk = new sandbox::Win8ResolverThunk(current_process, relaxed);
 #else
   if (nt::IsCurrentProcWow64()) {
     if (::IsWindows10OrGreater())

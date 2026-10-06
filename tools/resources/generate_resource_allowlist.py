@@ -31,6 +31,10 @@ llvm_bindir = os.path.join(os.path.dirname(sys.argv[0]), '..', '..',
 def ExtractAllowlistFromFile(path, resource_ids):
   with open(path, 'rb') as f:
     data = f.read()
+  ExtractAllowlistFromData(data, resource_ids)
+
+
+def ExtractAllowlistFromData(data, resource_ids):
   # When symbol_level=0, only mangled names exist.
   # E.g.: _ZN2ui19AllowlistedResourceILi22870EEEvv
   prefix = b'AllowlistedResourceILi'
@@ -62,6 +66,7 @@ def GetResourceAllowlistPDB(path):
       [os.path.join(llvm_bindir, 'llvm-pdbutil'), 'dump', '-publics', path],
       stdout=subprocess.PIPE)
   names = ''
+  itanium_ids = set()
   for line in pdbutil.stdout:
     line = line.decode('utf8')
     # Read a line of the form
@@ -76,15 +81,22 @@ def GetResourceAllowlistPDB(path):
     # C++ mangled names are supposed to begin with `?`, so check for that.
     if 'AllowlistedResource' in sym_name and sym_name.startswith('?'):
       names += sym_name + '\n'
+    # A PDB of code built for the Itanium C++ ABI (a *-windows-gnu target)
+    # has the same names in their Itanium form, e.g.
+    # _ZN2ui19AllowlistedResourceILi22870EEEvv, as in the ELF case above.
+    elif sym_name.startswith('_Z'):
+      ExtractAllowlistFromData(sym_name.encode('utf8'), itanium_ids)
   exit_code = pdbutil.wait()
   if exit_code != 0:
     raise Exception('llvm-pdbutil exited with exit code %d' % exit_code)
+  if not names:
+    return itanium_ids
 
   undname = subprocess.Popen([os.path.join(llvm_bindir, 'llvm-undname')],
                              stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE)
   stdout, _ = undname.communicate(names.encode('utf8'))
-  resource_ids = set()
+  resource_ids = itanium_ids
   for line in stdout.split(b'\n'):
     line = line.decode('utf8')
     # Read a line of the form
@@ -147,6 +159,9 @@ def WriteResourceAllowlist(args):
 def main():
   parser = argparse.ArgumentParser(usage=__doc__)
   parser.add_argument('inputs', nargs='+', help='An unstripped binary or PDB.')
+  parser.add_argument('--llvm-bindir',
+                      help='Directory of llvm-pdbutil and llvm-undname '
+                      '(default: Chromium\'s own clang build)')
   parser.add_argument('-o',
                       dest='output',
                       type=argparse.FileType('w'),
@@ -154,6 +169,9 @@ def main():
                       help='The resource list path to write (default stdout)')
 
   args = parser.parse_args()
+  if args.llvm_bindir:
+    global llvm_bindir
+    llvm_bindir = args.llvm_bindir
   WriteResourceAllowlist(args)
 
 

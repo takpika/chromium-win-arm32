@@ -26,7 +26,10 @@
 /* #undef HAVE_CRYPTO */
 /* #undef HAVE_FICLONERANGE */
 #define HAVE_FILENO
-#if !defined(OS_WIN)
+// win-arm32 (llvm-mingw): mingw provides native POSIX fseeko/ftello even on
+// Windows (unlike MSVC), so declare them present — otherwise compat.h's macro
+// fallbacks clobber mingw's real <stdio.h> declarations.
+#if !defined(OS_WIN) || defined(__MINGW32__)
 #define HAVE_FSEEKO
 #define HAVE_FTELLO
 #endif

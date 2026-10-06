@@ -178,9 +178,17 @@ bool InterceptionAgent::PatchDll(const DllPatchInfo* dll_info,
       return false;
     }
 
+    // win-arm32: entries in g_originals[] are CALLED by the Target*64 interceptors,
+    // so the address carries the Thumb bit (bit0=1); the ThunkData it points at is
+    // 4-byte aligned. OR it in (no-op on x86/x64/arm64). Must match interception.cc.
+    void* original_entry = &thunks->thunks[i];
+#if defined(_M_ARM) || defined(__arm__)
+    original_entry = reinterpret_cast<void*>(
+        reinterpret_cast<uintptr_t>(original_entry) | 1);
+#endif
     DCHECK_NT(!g_originals[function->id] ||
-              g_originals[function->id] == &thunks->thunks[i]);
-    g_originals[function->id] = &thunks->thunks[i];
+              g_originals[function->id] == original_entry);
+    g_originals[function->id] = original_entry;
 
     thunks->num_thunks++;
     thunks->used_bytes += sizeof(ThunkData);

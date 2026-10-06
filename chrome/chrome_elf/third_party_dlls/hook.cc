@@ -35,7 +35,13 @@ namespace third_party_dlls {
 #pragma section(".crthunk", read, execute)
 __declspec(allocate(".crthunk")) sandbox::ThunkData g_thunk_storage;
 
-#if defined(_WIN64)
+// win-arm32 (__arm__) takes the 64-bit path throughout this file: its service
+// resolver (sandbox/win/src/resolver_arm.cc) writes a bare jump to the
+// interceptor and cannot insert the original function as the first argument
+// the way the x86 resolver does (impossible on AAPCS), so, as on x64, the shim
+// below supplies the saved original itself. Same model as sandbox's
+// interceptors.h / interception.h.
+#if defined(_WIN64) || defined(__arm__)
 // Allocate storage for the pointer to the old NtMapViewOfSectionFunction.
 #pragma section(".oldntmap", write, read)
 __declspec(allocate(".oldntmap"))
@@ -389,7 +395,7 @@ NewNtMapViewOfSection(NtMapViewOfSectionFunction orig_MapViewOfSection,
   return ret;
 }
 
-#if defined(_WIN64)
+#if defined(_WIN64) || defined(__arm__)
 // x64 has an extra layer of indirection.  This just wraps the above
 // interceptor function that x86 hits directly.
 NTSTATUS WINAPI NewNtMapViewOfSection64(HANDLE section,
@@ -436,7 +442,7 @@ ThirdPartyStatus ApplyHook() {
   // version.
   BYTE* thunk_storage = reinterpret_cast<BYTE*>(&g_thunk_storage);
   NTSTATUS ntstatus = STATUS_UNSUCCESSFUL;
-#if defined(_WIN64)
+#if defined(_WIN64) || defined(__arm__)
   // Setup() applies the system-service patch, and stores a copy of the original
   // system service coded in |thunk_storage|.
   ntstatus =
@@ -448,8 +454,16 @@ ThirdPartyStatus ApplyHook() {
   // Keep a pointer to the original system-service code, which is now in
   // |thunk_storage|.  Use this pointer for passing off execution from new shim.
   // - Only needed on x64.
+#if defined(__arm__)
+  // The saved stub is Thumb-2 code in 4-byte-aligned storage; a pointer that is
+  // called must carry the Thumb bit, or BLX switches to A32 (as g_originals[] in
+  // sandbox/win/src/interception.cc).
+  g_nt_map_view_of_section_func = reinterpret_cast<NtMapViewOfSectionFunction>(
+      reinterpret_cast<uintptr_t>(thunk_storage) | 1);
+#else
   g_nt_map_view_of_section_func =
       reinterpret_cast<NtMapViewOfSectionFunction>(thunk_storage);
+#endif
 
   // Ensure that the pointer to the old function can't be changed.
   // - Do not treat this as a fatal error on failure.
@@ -464,7 +478,7 @@ ThirdPartyStatus ApplyHook() {
                    reinterpret_cast<void*>(&__ImageBase), "NtMapViewOfSection",
                    nullptr, reinterpret_cast<void*>(&NewNtMapViewOfSection),
                    thunk_storage, sizeof(sandbox::ThunkData), nullptr);
-#endif  // defined(_WIN64)
+#endif  // defined(_WIN64) || defined(__arm__)
 
   if (!NT_SUCCESS(ntstatus)) {
     // Remember the status code.

@@ -719,7 +719,9 @@ config("compiler") {
     # unless the architecture revision in .ARM.attributes is sufficiently new.
     # TODO(pcc): The contents of .ARM.attributes should be based on the
     # -march flag passed at compile time (see llvm.org/pr36291).
-    if (current_cpu == "arm") {
+    # Windows links with lld-link, which takes no -march (and COFF has no
+    # .ARM.attributes section).
+    if (current_cpu == "arm" && !is_win) {
       ldflags += [ "-march=$arm_arch" ]
     }
   }
@@ -1577,7 +1579,78 @@ config("default_warnings") {
 
           # TODO(crbug.com/1352183) Evaluate and possibly enable.
           "-Wno-bitfield-constant-conversion",
+
+          # win-arm32: the port's llvm-mingw clang is newer than the clang this
+          # Chromium (108) was written for and adds -Wmissing-template-arg-list-after-
+          # template-kw, which fires on VALID `X::template Foo(arg)` calls to a member
+          # function template whose type param is DEDUCED (no explicit <...>) -- e.g.
+          # blink wtf/hash_table.h:2046 `Allocator::template BackingWriteBarrier(&table_)`
+          # where heap_allocator_impl.h:162 declares `template<class T> static void
+          # BackingWriteBarrier(T**)`. The code is correct; the diagnostic is spurious for
+          # deduced-arg template members. Suppress it (2300+ hits across blink/mojom-blink).
+          "-Wno-missing-template-arg-list-after-template-kw",
+
+          # win-arm32: same clang-version skew adds -Wc++11-narrowing-const-reference, which
+          # flags narrowing (e.g. int -> uint64) in braced initializers bound to const refs on
+          # existing Chromium code (cc/layers/mirror_layer_impl.h:59). Non-negative values, no
+          # codegen change; suppress it like the sibling clang-roll -Wno flags.
+          "-Wno-c++11-narrowing-const-reference",
+
+          # win-arm32: same clang-version skew. The port's clang reports
+          # -Winvalid-offsetof on PartitionAlloc's offsetof static_asserts
+          # (partition_page.h:417/418, partition_root.h:2240), unchanged upstream
+          # through later milestones and built there with -Werror by Chromium's
+          # own clang; this clang reports them for the upstream Linux
+          # configuration too, so it is the compiler, not the Windows port.
+          "-Wno-invalid-offsetof",
+
+          # win-arm32: same clang-version skew adds -Wnontrivial-memcall (clang
+          # 20), which flags memset on PartitionAlloc's PartitionRoot
+          # (starscan/metadata_allocator.cc:39), deliberate existing code.
+          "-Wno-nontrivial-memcall",
+
+          # win-arm32: same clang-version skew. These diagnostics do not exist
+          # in the clang this Chromium was written for (llvmorg-16), or are off
+          # there by default, and fire on existing code in this clang:
+          # -Wextra now includes -Wunnecessary-virtual-specifier and
+          # -Wcast-function-type-mismatch; -Wdeprecated-this-capture is now on
+          # by default; the other groups are new.
+          "-Wno-unnecessary-virtual-specifier",
+          "-Wno-cast-function-type-mismatch",
+          "-Wno-deprecated-this-capture",
+          "-Wno-thread-safety-reference-return",
+          "-Wno-vla-cxx-extension",
+          "-Wno-unused-but-set-global",
+          "-Wno-uninitialized-const-pointer",
         ]
+
+        # win-arm32: same clang-version skew. -Wenum-compare-conditional (enabled
+        # above) now treats C enumeration constants as having their enumeration
+        # type; llvmorg-16 used their C type, int, so it never fired on C
+        # constants. Restore that for C only.
+        cflags_c += [ "-Wno-enum-compare-conditional" ]
+
+        # win-arm32: same clang-version skew. -Wcharacter-conversion (clang 21)
+        # flags conversions between differently-sized character types, e.g.
+        # char8_t -> char32_t in googletest's gtest-printers.h; upstream
+        # suppresses it for newer clangs the same way (crbug.com/417996267).
+        cflags_cc += [ "-Wno-character-conversion" ]
+
+        # win-arm32: same clang-version skew. -Wunused-but-set-variable now
+        # also covers C++ variables declared in an if-condition and used only
+        # as the condition (e.g. blink invalidation_set.h:585 `if (const
+        # StringImpl* impl = GetStringImpl(flags)) return 1;`), which the
+        # clang this tree was written for did not diagnose. The group existed
+        # there (it is in -Wall), so it stays enabled for the cases that clang
+        # reported and only stops being an error.
+        cflags_cc += [ "-Wno-error=unused-but-set-variable" ]
+
+        # win-arm32: same clang-version skew. -Wextra-qualification (on by
+        # default in llvmorg-16 too) now also checks class-template explicit
+        # specializations declared inside the namespace their qualifier names
+        # (base/test/async_results_test_values_win.h:22), valid since DR482.
+        # The group stays enabled and only stops being an error.
+        cflags_cc += [ "-Wno-error=extra-qualification" ]
       }
     }
   }
@@ -2329,6 +2402,14 @@ config("symbols") {
   if (is_win) {
     if (is_clang) {
       cflags = [ "/Z7" ]  # Debug information in the .obj files.
+      if (target_cpu == "arm") {
+        # Windows on ARM32 compiles for a *-windows-gnu triple, whose default
+        # debug format is DWARF, which the linker leaves in the image; emit
+        # CodeView, which goes into the PDB as for every other Windows target.
+        # (-gcodeview also turns debug information on, so it is only passed
+        # where debug information is requested.)
+        cflags += [ "-gcodeview" ]
+      }
     } else {
       cflags = [ "/Zi" ]  # Produce PDB file, no edit and continue.
     }
@@ -2476,6 +2557,13 @@ config("minimal_symbols") {
 
     # Enable line tables for clang. MSVC doesn't have an equivalent option.
     if (is_clang) {
+      if (target_cpu == "arm") {
+        # CodeView, as in config("symbols"). Before -gline-tables-only: the
+        # later debug-info flag decides the amount, and -gcodeview on its own
+        # asks for full debug information.
+        cflags += [ "-gcodeview" ]
+      }
+
       # -gline-tables-only is the same as -g1, but clang-cl only exposes the
       # former.
       cflags += [ "-gline-tables-only" ]

@@ -11,6 +11,7 @@
 #include <windef.h>
 
 #include "base/base_export.h"
+#include "base/strings/string_piece.h"
 #include "base/win/scoped_hstring.h"
 
 namespace base {

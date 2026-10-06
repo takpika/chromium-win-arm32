@@ -230,8 +230,10 @@ void WmiComputerSystemInfo::PopulateSerialNumber(
     const ComPtr<IEnumWbemClassObject>& enumerator_bios) {
   ComPtr<IWbemClassObject> class_obj;
   ULONG items_returned = 0;
-  HRESULT hr =
-      enumerator_bios->Next(WBEM_INFINITE, 1, &class_obj, &items_returned);
+  // WBEM_INFINITE is 0xffffffff: an int (-1) enumerator with the MSVC ABI, an
+  // unsigned one with the -gnu target's; Next() takes a LONG timeout.
+  HRESULT hr = enumerator_bios->Next(static_cast<LONG>(WBEM_INFINITE), 1,
+                                     &class_obj, &items_returned);
   if (FAILED(hr) || !items_returned)
     return;
 

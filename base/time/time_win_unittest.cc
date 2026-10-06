@@ -72,6 +72,16 @@ unsigned __stdcall RolloverTestThreadMain(void* param) {
 
 #if defined(_M_ARM64) && defined(__clang__)
 #define ReadCycleCounter() _ReadStatusReg(ARM64_PMCCNTR_EL0)
+#elif defined(ARCH_CPU_ARMEL)
+// 32-bit Windows on Arm gives user mode no cycle counter (winnt.h: "time stamp
+// counter which ARM doesn't have"; a PMCCNTR read raises an undefined
+// instruction exception on Windows RT). Read the architected hardware counter
+// user mode can read instead: the generic timer's virtual count, CNTVCT.
+uint64_t ReadCycleCounter() {
+  uint32_t low, high;
+  __asm__ volatile("mrrc p15, 1, %0, %1, c14" : "=r"(low), "=r"(high));
+  return (static_cast<uint64_t>(high) << 32) | low;
+}
 #else
 #define ReadCycleCounter() __rdtsc()
 #endif
@@ -245,7 +255,7 @@ TEST(TimeTicks, TimerPerformance) {
   }
 }
 
-#if !defined(ARCH_CPU_ARM64)
+#if !defined(ARCH_CPU_ARM_FAMILY)
 // This test is disabled on Windows ARM64 systems because TSCTicksPerSecond is
 // only used in Chromium for QueryThreadCycleTime, and QueryThreadCycleTime
 // doesn't use a constant-rate timer on ARM64.
