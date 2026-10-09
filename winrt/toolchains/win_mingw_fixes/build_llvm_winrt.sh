@@ -67,9 +67,10 @@
 # report the pinned revision (LLVM_FORCE_VC_REVISION), and every name the build invokes is
 # checked to.
 #
-# Runs on the linux-arm64 build host. The host binaries are compiled with
-# llvm-mingw's own clang for aarch64-linux-gnu against the DEPS-pinned Chromium
-# debian_bullseye_arm64 sysroot (installed in /home/winrt/sdk/sysroots), with libstdc++,
+# Runs on a linux build host (aarch64 or x86_64). The host binaries are compiled with
+# llvm-mingw's own clang for the host's *-linux-gnu triple against the DEPS-pinned
+# Chromium debian_bullseye sysroot of the host's arch (arm64 or amd64; installed in
+# /home/winrt/sdk/sysroots), with libstdc++,
 # zlib and libxml2 linked statically. libxml2 (lld-link merges the images' manifests with it
 # instead of calling mt.exe) is built exactly as Chromium's own clang build does it
 # (tools/clang/scripts/build.py BuildLibXml2: libxml2-v2.9.12 from the chromium-browser-clang
@@ -82,7 +83,12 @@ PIN=85ac560262434c9ccfc0c183ec22d4138ed647fb
 HERE=$(cd "$(dirname "$0")" && pwd)
 SDK=/home/winrt/sdk
 LLVM_MINGW=/opt/llvm-mingw
-SYSROOT=$SDK/sysroots/debian_bullseye_arm64-sysroot
+case $(uname -m) in
+  aarch64) HOST_ARCH=aarch64 HOST_SYSROOT=arm64 ;;
+  x86_64) HOST_ARCH=x86_64 HOST_SYSROOT=amd64 ;;
+  *) echo "unsupported build host $(uname -m)" >&2; exit 1 ;;
+esac
+SYSROOT=$SDK/sysroots/debian_bullseye_$HOST_SYSROOT-sysroot
 # Chromium's clang plugins (find-bad-constructs, blink-gc-plugin) are compiled into clang from
 # this Chromium tree's tools/clang, as tools/clang/scripts/build.py does for Chromium's own
 # clang package (LLVM_EXTERNAL_PROJECTS=chrometools); build/config/clang/BUILD.gn and
@@ -103,8 +109,9 @@ CMAKE_VERSION=3.31.6
 "$LLVM_MINGW/bin/clang" --version | grep -q "$PIN" || { echo "llvm-mingw clang is not $PIN" >&2; exit 1; }
 
 # cmake (not part of the host image): the PyPI wheel, pinned by version and sha256.
-printf 'cmake==%s --hash=sha256:%s\n' "$CMAKE_VERSION" \
-  42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521 > "$SDK/tools/cmake-requirements.txt"
+printf 'cmake==%s --hash=sha256:%s --hash=sha256:%s\n' "$CMAKE_VERSION" \
+  42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521 \
+  1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec > "$SDK/tools/cmake-requirements.txt"
 python3 -m pip install --quiet --require-hashes --upgrade --target "$SDK/tools/cmake" \
   -r "$SDK/tools/cmake-requirements.txt"
 CMAKE="python3 -c 'import sys; sys.path.insert(0, \"$SDK/tools/cmake\"); import cmake; sys.exit(cmake.cmake())'"
@@ -120,7 +127,7 @@ for p in clang_mingw_cl_arg_translation llvm_mingw_crt_init_array lld_arm_delayl
   patch -d "$SRC" -p1 --no-backup-if-mismatch < "$HERE/$p.patch"
 done
 
-HOSTFLAGS="--target=aarch64-linux-gnu --sysroot=$SYSROOT"
+HOSTFLAGS="--target=$HOST_ARCH-linux-gnu --sysroot=$SYSROOT"
 [ -n "${KEEP_BUILD:-}" ] || rm -rf "$BUILD"; mkdir -p "$BUILD"
 
 # libxml2, as tools/clang/scripts/build.py BuildLibXml2 builds it.
@@ -173,9 +180,9 @@ eval $CMAKE -G Ninja -S "$SRC/llvm" -B "$BUILD" \
   -DLIBXML2_LIBRARY="$XML/install/lib/libxml2.a" -DLIBXML2_LIBRARIES="$XML/install/lib/libxml2.a" \
   -DLIBXML2_INCLUDE_DIR="$XML/install/include/libxml2" \
   -DLLVM_ENABLE_ZLIB=FORCE_ON \
-  -DZLIB_LIBRARY="$SYSROOT/usr/lib/aarch64-linux-gnu/libz.a" \
+  -DZLIB_LIBRARY="$SYSROOT/usr/lib/$HOST_ARCH-linux-gnu/libz.a" \
   -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF \
-  -DLLVM_HOST_TRIPLE=aarch64-unknown-linux-gnu \
+  -DLLVM_HOST_TRIPLE=$HOST_ARCH-unknown-linux-gnu \
   -DLLVM_TABLEGEN_FLAGS= \
   -DLLVM_TOOL_LLVM_DRIVER_BUILD=OFF \
   -DLLVM_EXTERNAL_PROJECTS=chrometools \

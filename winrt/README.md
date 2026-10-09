@@ -22,12 +22,12 @@ Unzip and run `chrome.exe`, or run the installer (Chromium's `mini_installer`, p
 - `winrt/toolchains/` holds the toolchain recipes and supplements: llvm-mingw with patched
   clang/lld (`build_llvm_winrt.sh`), the Windows SDK/CRT splat (`fetch_xwin_splat.sh`),
   CRT runtimes, header supplements, and the GN arguments (`winrt_arm_args.gni`).
-- `winrt/ci/` builds everything on a linux-arm64 host: `toolchain.sh`, `checkout.sh`,
+- `winrt/ci/` builds everything on a linux host (x86_64 or aarch64): `toolchain.sh`, `checkout.sh`,
   `build.sh <chrome|chromium> <minutes>`, `package.py`.
 
 ## Building
 
-`.github/workflows/build.yml` runs on every push (GitHub-hosted `ubuntu-24.04-arm` runners).
+`.github/workflows/build.yml` runs on every push (GitHub-hosted `ubuntu-24.04` runners).
 The toolchain is built once and cached by the hash of its recipes; the browser build is split
 into stages that hand `out/` to each other, because a job is limited to six hours. Pushing a tag
 `v*` publishes both zips as a release.
