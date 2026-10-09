@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Build environment of the Windows on ARM32 port: linux-arm64 host (Debian bookworm, Python 3.11),
+# Build environment of the Windows on ARM32 port: linux host, x86_64 or aarch64 (Debian bookworm, Python 3.11),
 # llvm-mingw as the bootstrap compiler, pinned host tools. Every download is checksum-pinned.
 ARG DEBIAN=debian:bookworm-slim
 
@@ -7,24 +7,34 @@ FROM ${DEBIAN} AS fetch
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl xz-utils unzip && rm -rf /var/lib/apt/lists/*
 ARG LLVM_MINGW_VER=20260922
-ARG LLVM_MINGW_SHA256=07d21263c56bfe9a713db6fdb3f7434bf4c121a005e40397d3b4c0170fb06769
+ARG LLVM_MINGW_SHA256_arm64=07d21263c56bfe9a713db6fdb3f7434bf4c121a005e40397d3b4c0170fb06769
+ARG LLVM_MINGW_SHA256_amd64=bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21
 ARG NINJA_VER=v1.13.2
-ARG NINJA_SHA256=fd2cacc8050a7f12a16a2e48f9e06fca5c14fc4c2bee2babb67b58be17a607fc
+ARG NINJA_SHA256_arm64=fd2cacc8050a7f12a16a2e48f9e06fca5c14fc4c2bee2babb67b58be17a607fc
+ARG NINJA_SHA256_amd64=5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6
 ARG XWIN_VER=0.10.0
-ARG XWIN_SHA256=6d56d28537a86f37aa3d041318898f25ee3100c6b6ec332ad873c28faf37be23
+ARG XWIN_SHA256_arm64=6d56d28537a86f37aa3d041318898f25ee3100c6b6ec332ad873c28faf37be23
+ARG XWIN_SHA256_amd64=d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88
 ARG GN_REV=2dfb8cbd3b749242ee4492a7f15eba6889d52c7f
-ARG GN_SHA256=362365e3da8f4240faf4fdcebbdca2781739a48f56379bf456ca3f216d32482c
+ARG GN_SHA256_arm64=362365e3da8f4240faf4fdcebbdca2781739a48f56379bf456ca3f216d32482c
+ARG GN_SHA256_amd64=b2ade17b977f66983c6a29f323d0ada7683f1e079448a4c8b4263e2de825babd
+ARG TARGETARCH
 WORKDIR /dl
 RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) A=x86_64 GNA=amd64 NA=x64 ;; \
+      arm64) A=aarch64 GNA=arm64 NA=arm64 ;; \
+      *) echo "unsupported arch $TARGETARCH" >&2; exit 1 ;; esac; \
+    sha() { eval "echo \$${1}_SHA256_$TARGETARCH"; }; \
     get() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$1" "$2"; echo "$3  $1" | sha256sum -c -; }; \
-    get llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz" "$LLVM_MINGW_SHA256"; \
-    get ninja.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VER}/ninja-linux-aarch64.zip" "$NINJA_SHA256"; \
-    get xwin.tar.gz "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VER}/xwin-${XWIN_VER}-aarch64-unknown-linux-musl.tar.gz" "$XWIN_SHA256"; \
-    get gn.zip "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-arm64/+/git_revision:${GN_REV}" "$GN_SHA256"; \
+    get llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-$A.tar.xz" "$(sha LLVM_MINGW)"; \
+    get ninja.zip "https://github.com/ninja-build/ninja/releases/download/${NINJA_VER}/ninja-linux$([ $A = aarch64 ] && echo -aarch64).zip" "$(sha NINJA)"; \
+    get xwin.tar.gz "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VER}/xwin-${XWIN_VER}-$A-unknown-linux-musl.tar.gz" "$(sha XWIN)"; \
+    get gn.zip "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-$GNA/+/git_revision:${GN_REV}" "$(sha GN)"; \
     mkdir -p /opt/llvm-mingw /opt/bin; \
     tar -xf llvm-mingw.tar.xz -C /opt/llvm-mingw --strip-components=1; \
     unzip -q ninja.zip -d /opt/bin; unzip -q gn.zip gn -d /opt/bin; \
-    tar -xzf xwin.tar.gz --strip-components=1 -C /opt/bin "xwin-${XWIN_VER}-aarch64-unknown-linux-musl/xwin"; \
+    tar -xzf xwin.tar.gz --strip-components=1 -C /opt/bin "xwin-${XWIN_VER}-$A-unknown-linux-musl/xwin"; \
     chmod 0755 /opt/bin/*
 
 # ciopfs: case-insensitive view of the Windows SDK and the toolchain's headers/import libraries,

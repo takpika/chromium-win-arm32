@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the port toolchain into /home/winrt/sdk from the recipes in winrt/toolchains:
-#   sysroots           Chromium's DEPS-pinned debian_bullseye arm/arm64 sysroots
+#   sysroots           Chromium's DEPS-pinned debian_bullseye sysroots: arm and the host's
 #   llvm-mingw-winrt   build_llvm_winrt.sh (llvm-mingw + patched clang/lld + Chromium plugins)
 #   xwin-10.0.22621    fetch_xwin_splat.sh (Windows SDK / MSVC CRT splat)
 #   winrt-sdk          build_winrt_sdk.sh
@@ -17,7 +17,9 @@ export PATH=/usr/local/bin:/opt/llvm-mingw/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 mkdir -p "$SDK/tools" "$SDK/src" "$SDK/sysroots" "$SDK/staging"
 
-for a in arm arm64; do
+# arm for the V8 snapshot tools (run under qemu-arm), and the build host's own.
+case $(uname -m) in aarch64) HOSTSYS=arm64 ;; x86_64) HOSTSYS=x64 ;; esac
+for a in arm $HOSTSYS; do
   python3 "$R/build/linux/sysroot_scripts/install-sysroot.py" --arch=$a
 done
 for d in "$R"/build/linux/debian_bullseye_*-sysroot; do

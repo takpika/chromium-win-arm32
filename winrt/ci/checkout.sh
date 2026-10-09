@@ -17,10 +17,13 @@ if [ ! -d "$DT" ]; then
   git -C "$DT" checkout -q "$(git -C "$DT" rev-list -1 --before=2023-01-20 origin/main)"
 fi
 
-# CIPD packages with no linux-arm64 build at Chromium 109's pins: reclient (not used) and the
-# host 7-Zip (installed below by winrt/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh).
-# gclient's custom_deps cannot drop CIPD entries, so a cipd wrapper leaves them out of `ensure`.
+# On an aarch64 host: CIPD packages with no linux-arm64 build at this Chromium version's pins,
+# reclient (not used) and the host 7-Zip (installed below by
+# winrt/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh). gclient's custom_deps cannot
+# drop CIPD entries, so a cipd wrapper leaves them out of `ensure`.
+HOST=$(uname -m)
 mkdir -p "$W/bin"
+if [ "$HOST" = aarch64 ]; then
 cat > "$W/bin/cipd" <<'EOF'
 #!/bin/bash
 args=("$@")
@@ -33,6 +36,7 @@ done
 exec "$DT/cipd" "$@"
 EOF
 chmod +x "$W/bin/cipd"
+fi
 export PATH="$W/bin:$PATH" DT
 
 mkdir -p "$G"
@@ -55,13 +59,16 @@ while read -r repo patch; do
   git -C "$S/$repo" apply --whitespace=nowarn "$S/winrt/patches/$patch"
 done < "$S/winrt/patches/series"
 
-# Only the DEPS hooks the Windows build uses. The others fetch x86-64 host tools this host
-# cannot run (clang, node, rc, ciopfs, objdump: provided by winrt/toolchains and the builder
-# image instead), NaCl (no aarch64 host support), test data, or the sysroots (in the sdk cache).
-python3 - <<'EOF'
-import subprocess
+# Only the DEPS hooks the Windows build uses; on an x86_64 host also Chromium's own linux-x64
+# node and rc. The others fetch the toolchain (clang, objdump, ciopfs: winrt/toolchains and the
+# builder image provide them), NaCl, test data, or the sysroots (in the sdk cache); on an
+# aarch64 host node and rc too, as they are x86-64 binaries (winrt/toolchains provides them).
+HOST=$HOST python3 - <<'EOF'
+import os, subprocess
 HOOKS = {"lastchange", "gpu_lists_version", "lastchange_skia", "lastchange_dawn",
          "webui_node_modules", "Fetch PGO profiles for win32"}
+if os.environ["HOST"] == "x86_64":
+    HOOKS |= {"node_linux64", "rc_linux"}
 ns = {"Var": lambda x: "{%s}" % x, "Str": str}
 exec(open("src/DEPS").read(), ns)
 done = set()
@@ -75,9 +82,11 @@ EOF
 
 rm -rf "$W/toolchains"; cp -a "$S/winrt/toolchains" "$W/toolchains"
 ln -sfn "$S" "$W/chromium"
-CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_node_linux_arm64.sh"
-mkdir -p "$S/third_party/lzma_sdk/bin/host_platform"
-CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh"
+if [ "$HOST" = aarch64 ]; then
+  CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_node_linux_arm64.sh"
+  mkdir -p "$S/third_party/lzma_sdk/bin/host_platform"
+  CHROMIUM_SRC=$S sh "$W/toolchains/win_mingw_fixes/fetch_7z_host_platform.sh"
+fi
 
 # Same mtime for every source file in every job (out/ is carried between jobs with its own).
 find "$S" -path "$S/out" -prune -o -print0 | xargs -0 touch -h -d "2023-01-01 00:00:00"
