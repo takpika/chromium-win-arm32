@@ -23,6 +23,8 @@ PredictionModelHandler::PredictionModelHandler(
           optimization_target,
           absl::nullopt) {}
 
+PredictionModelHandler::~PredictionModelHandler() = default;
+
 void PredictionModelHandler::OnModelUpdated(
     optimization_guide::proto::OptimizationTarget optimization_target,
     const optimization_guide::ModelInfo& model_info) {

@@ -46,7 +46,7 @@ namespace gl {
 // platform specific management.
 class GL_EXPORT GLImage : public base::RefCounted<GLImage> {
  public:
-  GLImage() = default;
+  GLImage();
 
   GLImage(const GLImage&) = delete;
   GLImage& operator=(const GLImage&) = delete;

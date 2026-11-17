@@ -377,16 +377,14 @@ void FindBadConstructsConsumer::CheckCtorDtorWeight(
 
   // Count the number of templated base classes as a feature of whether the
   // destructor can be inlined.
-  //
-  // This tree's checks were calibrated with its own clang
-  // (tools/clang/scripts/update.py: llvmorg-16-init-6578-g0d30e92f), where
-  // every type written in a base-specifier, qualified or bare, is an
-  // ElaboratedTypeLoc (types written bare got ElaboratedType sugar in
-  // llvm-project 15f3cd6bfc67), so the TypeLoc::TemplateSpecialization test
-  // that counted them never matched and templated bases never added to the
-  // score. clang 22 removed ElaboratedType, which would make that test match;
-  // it is not applied, so the score stays the one this tree passes.
   int templated_base_classes = 0;
+  for (CXXRecordDecl::base_class_const_iterator it = record->bases_begin();
+       it != record->bases_end(); ++it) {
+    if (it->getTypeSourceInfo()->getTypeLoc().getTypeLocClass() ==
+        TypeLoc::TemplateSpecialization) {
+      ++templated_base_classes;
+    }
+  }
 
   // Count the number of trivial and non-trivial member variables.
   int trivial_member = 0;

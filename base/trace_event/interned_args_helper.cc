@@ -92,6 +92,11 @@ void InternedMapping::Add(perfetto::EventContext* ctx,
   msg->add_path_string_ids(path_id);
 }
 
+InternedUnsymbolizedSourceLocation::InternedUnsymbolizedSourceLocation() =
+    default;
+InternedUnsymbolizedSourceLocation::~InternedUnsymbolizedSourceLocation() =
+    default;
+
 // static
 absl::optional<size_t> InternedUnsymbolizedSourceLocation::Get(
     perfetto::EventContext* ctx,

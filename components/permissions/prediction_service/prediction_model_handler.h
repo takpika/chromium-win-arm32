@@ -20,7 +20,7 @@ class PredictionModelHandler : public optimization_guide::ModelHandler<
       optimization_guide::OptimizationGuideModelProvider* model_provider,
       optimization_guide::proto::OptimizationTarget optimization_target);
 
-  ~PredictionModelHandler() override = default;
+  ~PredictionModelHandler() override;
   PredictionModelHandler(const PredictionModelHandler&) = delete;
   PredictionModelHandler& operator=(const PredictionModelHandler&) = delete;
 

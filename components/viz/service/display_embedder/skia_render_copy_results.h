@@ -29,12 +29,12 @@ class SkiaOutputSurfaceImplOnGpu;
 class AsyncReadResultLock
     : public base::RefCountedThreadSafe<AsyncReadResultLock> {
  public:
-  AsyncReadResultLock() = default;
+  AsyncReadResultLock();
   base::Lock& lock() { return lock_; }
 
  private:
   friend class base::RefCountedThreadSafe<AsyncReadResultLock>;
-  ~AsyncReadResultLock() = default;
+  ~AsyncReadResultLock();
 
   base::Lock lock_;
 };

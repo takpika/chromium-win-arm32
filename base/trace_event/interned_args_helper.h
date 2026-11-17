@@ -164,6 +164,9 @@ struct BASE_EXPORT InternedUnsymbolizedSourceLocation
           perfetto::protos::pbzero::InternedData::
               kUnsymbolizedSourceLocationsFieldNumber,
           uintptr_t> {
+  InternedUnsymbolizedSourceLocation();
+  ~InternedUnsymbolizedSourceLocation() override;
+
   // We need a custom Get implementation to use ModuleCache, and to return
   // a nullopt if a module for the given address cannot be found.
   static absl::optional<size_t> Get(perfetto::EventContext* ctx,

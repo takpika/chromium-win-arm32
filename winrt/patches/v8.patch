@@ -4971,6 +4971,26 @@ index 4c5accd7a8f352a128499861d5d28a6d9b859f1a..efe2d055a96bdd962a443c9686213754
    // This {cmp} might still emit a constant pool entry.
    __ cmp(input, Operand(case_count));
    // Ensure to emit the constant pool first if necessary.
+diff --git a/src/compiler/backend/arm/instruction-selector-arm.cc b/src/compiler/backend/arm/instruction-selector-arm.cc
+index 8733aff78796410269a377b460e5d4f513d12a92..9d55e2a61f504f858d6917726cec4e920d8b6cd0 100644
+--- a/src/compiler/backend/arm/instruction-selector-arm.cc
++++ b/src/compiler/backend/arm/instruction-selector-arm.cc
+@@ -218,7 +218,14 @@ bool TryMatchLSLImmediate(InstructionSelector* selector,
+                           InstructionCode* opcode_return, Node* node,
+                           InstructionOperand* value_return,
+                           InstructionOperand* shift_return) {
+-  return TryMatchShiftImmediate<IrOpcode::kWord32Shl, 0, 31,
++  // Only EmitLoad/EmitStore (kArmLdr, kArmStr, kAtomicStoreWord32) fold a shift
++  // into the address. On win-arm32 native Thumb the register-offset LDR/STR has
++  // only [Rn, Rm, LSL #0..3] (the encoder rejects larger scales), so a larger
++  // Word32Shl index stays a separate node (one lsl.w) and the access uses
++  // kMode_Offset_RR. Reachable from TurboFan wasm code, e.g. a 16-byte-stride
++  // index `(x << 4)` feeding i32.load.
++  constexpr int kMaxShift = kWinRTNativeThumbEmit ? 3 : 31;
++  return TryMatchShiftImmediate<IrOpcode::kWord32Shl, 0, kMaxShift,
+                                 kMode_Operand2_R_LSL_I>(
+       selector, opcode_return, node, value_return, shift_return);
+ }
 diff --git a/src/compiler/turboshaft/recreate-schedule.cc b/src/compiler/turboshaft/recreate-schedule.cc
 index e8c2563909cb48f4c1c7835a22a527219df3454b..8a8cec617bbf0f186ccb31e97c2a3771340d4c76 100644
 --- a/src/compiler/turboshaft/recreate-schedule.cc

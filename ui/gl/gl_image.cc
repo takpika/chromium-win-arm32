@@ -14,6 +14,8 @@
 
 namespace gl {
 
+GLImage::GLImage() = default;
+
 gfx::Size GLImage::GetSize() {
   NOTREACHED();
   return gfx::Size();
