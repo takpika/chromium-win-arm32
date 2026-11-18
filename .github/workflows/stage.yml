@@ -48,6 +48,9 @@ jobs:
         uses: ./winrt/ci/host
         with:
           swap: 24
+          # A failed stage-2 link (run 44224799672) used 54 GB on top of a 62 GB-free runner and
+          # still ran out; refuse a runner with less than this before spending hours on it.
+          min_free_gb: 75
 
       - name: Restore toolchain
         if: steps.done.outcome != 'success'
