@@ -1,3 +1,21 @@
+diff --git a/modules/skcms/src/Transform_inl.h b/modules/skcms/src/Transform_inl.h
+index 7b8aa8ac1c50f2300651620f3fbdd3f2b3b27988..096a0eb6401ec96b2d2763ac661dde7ebf4a016d 100644
+--- a/modules/skcms/src/Transform_inl.h
++++ b/modules/skcms/src/Transform_inl.h
+@@ -165,8 +165,13 @@ SI F F_from_Half(U16 half) {
+ #elif defined(USING_AVX512F)
+     return (F)_mm512_cvtph_ps((__m256i)half);
+ #elif defined(USING_AVX_F16C)
++#if defined(__clang__) && __clang_major__ >= 15 // for _Float16 support
++    typedef _Float16 __attribute__((vector_size(16))) F16;
++    return __builtin_convertvector((F16)half, F);
++#else
+     typedef int16_t __attribute__((vector_size(16))) I16;
+     return __builtin_ia32_vcvtph2ps256((I16)half);
++#endif // defined(__clang))
+ #else
+     U32 wide = cast<U32>(half);
+     // A half is 1-5-10 sign-exponent-mantissa, with 15 exponent bias.
 diff --git a/src/opts/SkRasterPipeline_opts.h b/src/opts/SkRasterPipeline_opts.h
 index e5de7542bab40f002ea00dcd038bdee5071bdb9a..208aa12f5fc3a81a90250332f1384cede8dfff20 100644
 --- a/src/opts/SkRasterPipeline_opts.h
