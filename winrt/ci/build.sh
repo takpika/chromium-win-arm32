@@ -68,8 +68,15 @@ ninja -C "$O" $FIRST
 set +e
 left=$(( (END - $(date +%s)) / 60 ))
 [ "$left" -gt 0 ] || { echo "time is up; continuing in the next job"; exit 3; }
-timeout --signal=INT --kill-after=10m "${left}m" ninja -k 0 -C "$O" $T
+# GitHub's runners have 4 cores and 16 GB of RAM (+ the swap winrt/ci/host adds). ninja's
+# default (cores + 2) next to the ThinLTO links starved the runner until it lost its connection
+# to GitHub mid-stage (run 44992372618, s3 chromium); 3 jobs leave room for the links.
+# Memory and swap use go to the log every 5 minutes, so a lost runner still leaves a trail.
+( while sleep 300; do echo "[mem $(date -u +%H:%M)] $(free -m | awk '/^Mem:/{printf "used %d/%d MB", $3, $2} /^Swap:/{printf ", swap %d/%d MB", $3, $2}')"; done ) &
+MON=$!
+timeout --signal=INT --kill-after=10m "${left}m" ninja -j 3 -k 0 -C "$O" $T
 rc=$?
+kill $MON 2>/dev/null || true
 set -e
 [ $rc -eq 124 ] && { echo "time is up; continuing in the next job"; exit 3; }
 exit $rc
